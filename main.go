@@ -77,6 +77,7 @@ func main() {
 
 	fmt.Println("JoblessYu Vessel is now running. Press CTRL-C to exit.")
 
+	//Ctrl + C signal
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop

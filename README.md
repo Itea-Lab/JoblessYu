@@ -1,5 +1,5 @@
 # JoblessYu
-Discordgo - Job Announcer Bot
+Discordgo - Job Scalper Bot
 
 ## Get Started with Neon
 
