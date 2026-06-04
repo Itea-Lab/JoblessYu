@@ -1,6 +1,3 @@
-// ==========================================
-// SECTION 1: IMPORTS
-// ==========================================
 package main
 
 import (
@@ -9,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	"github.com/bwmarrin/discordgo"
@@ -16,255 +14,292 @@ import (
 	"github.com/joho/godotenv"
 )
 
-func main() {
-	// ==========================================
-	// SECTION 2: INITIALIZE ENV AND DISCORD API
-	// ==========================================
+type JobEntry struct {
+	Title    string
+	Company  string
+	Location string
+	URL      string
+}
 
-	// Load the .env file
-	err := godotenv.Load()
-	if err != nil {
+var (
+	jobsCache = map[string][]JobEntry{}
+	cacheLock sync.RWMutex
+	commands  = []*discordgo.ApplicationCommand{
+		{
+			Name:        "jobs",
+			Description: "Show latest jobs in a paginated embed",
+			Type:        discordgo.ChatApplicationCommand,
+		},
+	}
+)
+
+func main() {
+	// Load .env
+	if err := godotenv.Load(); err != nil {
 		log.Println("Note: .env file not found, using system env variables")
 	}
 
 	token := "Bot " + os.Getenv("DISCORD_BOT_TOKEN")
 	dbURL := os.Getenv("DATABASE_URL")
 
-	// Create Discord API Session
 	disbot, err := discordgo.New(token)
 	if err != nil {
-		fmt.Println("error creating Discord session,", err)
-		return
+		log.Fatal("Error creating Discord session:", err)
 	}
 
-	// ==========================================
-	// SECTION 3: SLASH PREFIX COMMANDS
-	// ==========================================
+	disbot.Identify.Intents =
+		discordgo.IntentsGuildMessages |
+			discordgo.IntentsDirectMessages |
+			discordgo.IntentsGuilds |
+			discordgo.IntentsMessageContent
 
-	// Define the handler for when a user triggers a slash command interaction
-	disbot.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-		// Ignore interactions that aren't slash commands
-		if i.Type != discordgo.InteractionApplicationCommand {
+	disbot.AddHandler(func(s *discordgo.Session, m *discordgo.MessageCreate) {
+
+		// Ignore bot messages
+		if m.Author.Bot {
 			return
 		}
 
-		// Handle the "/jobs" command
-		if i.ApplicationCommandData().Name == "jobs" {
-			// Acknowledge the command immediately to avoid a 3-second timeout.
-			err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-			})
-			if err != nil {
-				fmt.Println("Error deferring interaction:", err)
-				return
+		// Test embed command
+		if m.Content == "!testembed" {
+			embed := &discordgo.MessageEmbed{
+				Title:       "✅ Embed Test",
+				Description: "If you can see this, embeds are working correctly.",
+				Color:       0x57F287,
 			}
 
-			// Pass off execution to our DB handler at the bottom of the script
-			handleDbConnectAndReply(s, i, dbURL)
+			_, err := s.ChannelMessageSendEmbed(m.ChannelID, embed)
+			if err != nil {
+				log.Println("Embed Error:", err)
+			}
+			return
 		}
+
+		// Removed text-based !jobs support; use the /jobs slash command instead.
 	})
 
-	// Set Discord Intents
-	disbot.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages
+	disbot.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		if i.Type == discordgo.InteractionApplicationCommand {
+			if i.ApplicationCommandData().Name == "jobs" {
+				handleJobsSlash(s, i, dbURL)
+			}
+			return
+		}
 
-	// Open Connection to Discord
-	err = disbot.Open()
+		if i.Type != discordgo.InteractionMessageComponent {
+			return
+		}
+
+		if i.Message == nil || i.Message.ID == "" {
+			return
+		}
+
+		cacheLock.RLock()
+		jobs, ok := jobsCache[i.Message.ID]
+		cacheLock.RUnlock()
+		if !ok || len(jobs) == 0 {
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "⚠️ This job list has expired. Please run `/jobs` again.",
+					Flags:   1 << 6,
+				},
+			})
+			return
+		}
+
+		page := 1
+		if i.Message.Embeds != nil && len(i.Message.Embeds) > 0 && i.Message.Embeds[0].Footer != nil {
+			var total int
+			_, err := fmt.Sscanf(i.Message.Embeds[0].Footer.Text, "Job %d of %d • %*s", &page, &total)
+			if err != nil {
+				page = 1
+			}
+		}
+
+		switch i.MessageComponentData().CustomID {
+		case "job_page_prev":
+			if page > 1 {
+				page--
+			}
+		case "job_page_next":
+			if page < len(jobs) {
+				page++
+			}
+		default:
+			return
+		}
+
+		embed := buildJobEmbed(jobs[page-1], page, len(jobs))
+		components := []discordgo.MessageComponent{
+			discordgo.ActionsRow{
+				Components: []discordgo.MessageComponent{
+					discordgo.Button{
+						Label:    "⬅️ Prev",
+						Style:    discordgo.SecondaryButton,
+						CustomID: "job_page_prev",
+						Disabled: page == 1,
+					},
+					discordgo.Button{
+						Label:    "Next ➡️",
+						Style:    discordgo.SecondaryButton,
+						CustomID: "job_page_next",
+						Disabled: page == len(jobs),
+					},
+				},
+			},
+		}
+
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseUpdateMessage,
+			Data: &discordgo.InteractionResponseData{
+				Embeds:     []*discordgo.MessageEmbed{embed},
+				Components: components,
+			},
+		})
+	})
+
+	if err := disbot.Open(); err != nil {
+		log.Fatal("Error opening connection:", err)
+	}
+
+	guildID := os.Getenv("DISCORD_GUILD_ID")
+	for _, cmd := range commands {
+		existing, err := disbot.ApplicationCommands(disbot.State.User.ID, guildID)
+		if err == nil {
+			skip := false
+			for _, existingCmd := range existing {
+				if existingCmd.Name == cmd.Name {
+					skip = true
+					break
+				}
+			}
+			if skip {
+				continue
+			}
+		}
+		_, err = disbot.ApplicationCommandCreate(disbot.State.User.ID, guildID, cmd)
+		if err != nil {
+			log.Println("Failed to register slash command:", err)
+		}
+	}
+
+	fmt.Println("JoblessYu Vessel is now running. Press CTRL+C to exit.")
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	<-stop
+
+	fmt.Println("Shutting down...")
+	disbot.Close()
+}
+
+func buildJobEmbed(job JobEntry, page, total int) *discordgo.MessageEmbed {
+	return &discordgo.MessageEmbed{
+		Title:       job.Company,
+		Description: fmt.Sprintf("• **Role:** %s\n• **Location:** %s\n• **Apply:** [Open job](%s)", job.Title, job.Location, job.URL),
+		Color:       0x5865F2,
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: fmt.Sprintf("Job %d of %d • Powered by JobSpy + Neon", page, total),
+		},
+	}
+}
+
+func fetchJobs(dbURL string) ([]JobEntry, error) {
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, dbURL)
 	if err != nil {
-		fmt.Println("Error opening connection", err)
+		return nil, err
+	}
+	defer conn.Close(ctx)
+
+	rows, err := conn.Query(
+		ctx,
+		`SELECT title, company, location, job_url
+		 FROM jobs
+		 ORDER BY fetched_at DESC
+		 LIMIT 10`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var jobs []JobEntry
+	for rows.Next() {
+		var title, company, location, url string
+		if err := rows.Scan(&title, &company, &location, &url); err != nil {
+			continue
+		}
+		jobs = append(jobs, JobEntry{Title: title, Company: company, Location: location, URL: url})
+	}
+
+	return jobs, nil
+}
+
+func handleJobsSlash(s *discordgo.Session, i *discordgo.InteractionCreate, dbURL string) {
+	jobs, err := fetchJobs(dbURL)
+	if err != nil {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ Failed to fetch jobs. Please try again later.",
+				Flags:   1 << 6,
+			},
+		})
+		log.Println("Slash jobs fetch error:", err)
 		return
 	}
-	defer disbot.Close()
 
-	// Register the slash command configuration to Discord's server UI
-	command := &discordgo.ApplicationCommand{
-		Name:        "jobs",
-		Description: "Fetch IT Support roles with specific criteria",
-		Options: []*discordgo.ApplicationCommandOption{
-			// 1. REQUIRED OPTION (Must go first!)
-			{
-				Type:        discordgo.ApplicationCommandOptionString,
-				Name:        "level",
-				Description: "Experience level required",
-				Required:    true,
-				Choices: []*discordgo.ApplicationCommandOptionChoice{
-					{Name: "Intern", Value: "Intern"},
-					{Name: "Junior", Value: "Junior"},
-					{Name: "Senior", Value: "Senior"},
-				},
+	if len(jobs) == 0 {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "⚠️ No jobs found in the database.",
+				Flags:   1 << 6,
 			},
-			// 2. OPTIONAL OPTION (Job Type)
-			{
-				Type:        discordgo.ApplicationCommandOptionString,
-				Name:        "type",
-				Description: "Job employment type",
-				Required:    false,
-				Choices: []*discordgo.ApplicationCommandOptionChoice{
-					{Name: "Full-Time", Value: "fulltime"},
-					{Name: "Part-Time", Value: "parttime"},
+		})
+		return
+	}
+
+	embed := buildJobEmbed(jobs[0], 1, len(jobs))
+	components := []discordgo.MessageComponent{
+		discordgo.ActionsRow{
+			Components: []discordgo.MessageComponent{
+				discordgo.Button{
+					Label:    "⬅️ Prev",
+					Style:    discordgo.SecondaryButton,
+					CustomID: "job_page_prev",
+					Disabled: true,
 				},
-			},
-			// 3. OPTIONAL OPTION (Location)
-			{
-				Type:        discordgo.ApplicationCommandOptionString,
-				Name:        "location",
-				Description: "Job Location preference",
-				Required:    false,
-				Choices: []*discordgo.ApplicationCommandOptionChoice{
-					{Name: "Ho Chi Minh", Value: "HCM"},
-					{Name: "Hanoi", Value: "Hanoi"},
+				discordgo.Button{
+					Label:    "Next ➡️",
+					Style:    discordgo.SecondaryButton,
+					CustomID: "job_page_next",
 				},
 			},
 		},
 	}
 
-	fmt.Println("Registering slash command with options...")
-	registeredCmd, err := disbot.ApplicationCommandCreate(disbot.State.User.ID, "", command)
-	if err != nil {
-		log.Panicf("Cannot create slash command: %v", err)
-	}
-
-	fmt.Println("JoblessYu Vessel is now running. Press CTRL-C to exit.")
-
-	// Cleanup command on close
-	defer func() {
-		fmt.Println("\nRemoving slash command...")
-		_ = disbot.ApplicationCommandDelete(disbot.State.User.ID, "", registeredCmd.ID)
-	}()
-
-	// Keep running until Ctrl + C signal is received
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-	<-stop
-
-	fmt.Println("Shutting down")
-}
-
-// ==========================================
-// SECTION 4: DB CONNECT AND REPLY (MVP Version)
-// ==========================================
-
-func handleDbConnectAndReply(s *discordgo.Session, i *discordgo.InteractionCreate, dbURL string) {
-	ctx := context.Background()
-
-	// Parse out options provided by the user
-	options := i.ApplicationCommandData().Options
-	optionMap := make(map[string]*discordgo.ApplicationCommandInteractionDataOption)
-	for _, opt := range options {
-		optionMap[opt.Name] = opt
-	}
-
-	// Required option (e.g., "Intern", "Junior", "Senior")
-	levelValue := optionMap["level"].StringValue()
-
-	// Optional options
-	typeValue := ""
-	if opt, exists := optionMap["type"]; exists {
-		typeValue = opt.StringValue()
-	}
-
-	locationValue := ""
-	if opt, exists := optionMap["location"]; exists {
-		locationValue = opt.StringValue()
-	}
-
-	// 1. Establish connection to Neon DB
-	conn, err := pgx.Connect(ctx, dbURL)
-	if err != nil {
-		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: ptr("❌ Failed to connect to Neon DB."),
-		})
-		fmt.Println("DB Connect Error:", err)
-		return
-	}
-	defer conn.Close(ctx)
-
-	// Update user with an initial status message
-	statusMsg := fmt.Sprintf("Checking Neon DB for **%s** IT Support roles...", levelValue)
-	if locationValue != "" {
-		statusMsg += fmt.Sprintf(" in **%s**", locationValue)
-	}
-	if typeValue != "" {
-		statusMsg += fmt.Sprintf(" (%s)", typeValue)
-	}
-	statusMsg += " =w="
-
-	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Content: &statusMsg,
-	})
-
-	// 2. Build the dynamic SQL Query matching your exact Python MVP Schema
-	baseQuery := "SELECT title, company, location, job_url FROM jobs WHERE title ILIKE $1"
-	args := []interface{}{"%" + levelValue + "%"}
-	placeholderCount := 2
-
-	// Handle Location wildcard matching
-	if locationValue != "" {
-		if locationValue == "HCM" {
-			baseQuery += fmt.Sprintf(" AND (location ILIKE $%d OR location ILIKE '%%Hồ Chí Minh%%')", placeholderCount)
-			args = append(args, "%HCM%")
-		} else {
-			baseQuery += fmt.Sprintf(" AND location ILIKE $%d", placeholderCount)
-			args = append(args, "%"+locationValue+"%")
-		}
-		placeholderCount++
-	}
-
-	// Handle Job Employment Type matching
-	if typeValue != "" {
-		var typeSearch string
-		if typeValue == "fulltime" {
-			typeSearch = "%full%"
-		} else if typeValue == "parttime" {
-			typeSearch = "%part%"
-		}
-
-		baseQuery += fmt.Sprintf(" AND job_type ILIKE $%d", placeholderCount)
-		args = append(args, typeSearch)
-		placeholderCount++
-	}
-
-	// Add sorting and cap it at 10 results
-	baseQuery += fmt.Sprintf(" ORDER BY fetched_at DESC LIMIT 10")
-
-	// 3. Query data
-	rows, err := conn.Query(ctx, baseQuery, args...)
-	if err != nil {
-		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: ptr("❌ Error fetching filtered jobs from database."),
-		})
-		fmt.Println("Query Error:", err)
-		return
-	}
-	defer rows.Close()
-
-	var finalMessage string
-	jobCount := 0
-
-	// 4. Formulate the response layout
-	for rows.Next() {
-		var title, company, loc, url string
-		err := rows.Scan(&title, &company, &loc, &url)
-		if err != nil {
-			continue
-		}
-		jobCount++
-		finalMessage += fmt.Sprintf("📌 **%s**\n🏢 %s | 📍 %s\n🔗 <%s>\n\n", title, company, loc, url)
-	}
-
-	if jobCount == 0 {
-		finalMessage = fmt.Sprintf("No recent jobs matching your criteria were found. (Filter: Level=%s, Loc=%s, Type=%s)", levelValue, locationValue, typeValue)
-	}
-
-	// 5. Edit the initial status message with our data payload
-	_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Content: &finalMessage,
+	err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds:     []*discordgo.MessageEmbed{embed},
+			Components: components,
+		},
 	})
 	if err != nil {
-		fmt.Println("Error sending final interaction response:", err)
+		log.Println("Slash jobs send error:", err)
+		return
 	}
-}
 
-// Simple helper utility to generate string pointers required by discordgo's WebhookEdit struct
-func ptr(s string) *string {
-	return &s
+	msg, err := s.InteractionResponse(i.Interaction)
+	if err != nil {
+		log.Println("Failed to read slash response message:", err)
+		return
+	}
+
+	cacheLock.Lock()
+	jobsCache[msg.ID] = jobs
+	cacheLock.Unlock()
 }
