@@ -13,3 +13,6 @@ __pycache__/
 #NeonDB connection string
 skills-lock.json
 .agents
+
+# Documentation notes
+Note.md

@@ -6,19 +6,24 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 
+	"github.com/JohannesKaufmann/html-to-markdown/v2"
 	"github.com/bwmarrin/discordgo"
 	"github.com/jackc/pgx/v5"
 	"github.com/joho/godotenv"
 )
 
 type JobEntry struct {
-	Title    string
-	Company  string
-	Location string
-	URL      string
+	Title       string
+	Company     string
+	Location    string
+	URL         string
+	Description string
+	Level       string // detected: Intern, Junior, Senior
+	Type        string // detected: Fulltime, Parttime
 }
 
 var (
@@ -27,8 +32,40 @@ var (
 	commands  = []*discordgo.ApplicationCommand{
 		{
 			Name:        "jobs",
-			Description: "Show latest jobs in a paginated embed",
-			Type:        discordgo.ChatApplicationCommand,
+			Description: "Browse IT Support jobs with pagination",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "level",
+					Description: "Job experience level",
+					Required:    true,
+					Choices: []*discordgo.ApplicationCommandOptionChoice{
+						{Name: "Intern", Value: "Intern"},
+						{Name: "Junior", Value: "Junior"},
+						{Name: "Senior", Value: "Senior"},
+					},
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "time",
+					Description: "Job type (optional)",
+					Required:    false,
+					Choices: []*discordgo.ApplicationCommandOptionChoice{
+						{Name: "Fulltime", Value: "Fulltime"},
+						{Name: "Parttime", Value: "Parttime"},
+					},
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "location",
+					Description: "Job location (optional)",
+					Required:    false,
+					Choices: []*discordgo.ApplicationCommandOptionChoice{
+						{Name: "HCM (Ho Chi Minh)", Value: "HCM"},
+						{Name: "HN (Ha Noi)", Value: "HN"},
+					},
+				},
+			},
 		},
 	}
 )
@@ -110,9 +147,8 @@ func main() {
 
 		page := 1
 		if i.Message.Embeds != nil && len(i.Message.Embeds) > 0 && i.Message.Embeds[0].Footer != nil {
-			var total int
-			_, err := fmt.Sscanf(i.Message.Embeds[0].Footer.Text, "Job %d of %d • %*s", &page, &total)
-			if err != nil {
+			fmt.Sscanf(i.Message.Embeds[0].Footer.Text, "Page %d", &page)
+			if page < 1 {
 				page = 1
 			}
 		}
@@ -194,18 +230,66 @@ func main() {
 	disbot.Close()
 }
 
+func detectJobMeta(description string) (level, jobType string) {
+	lower := strings.ToLower(description)
+
+	switch {
+	case strings.Contains(lower, "intern"):
+		level = "Intern"
+	case strings.Contains(lower, "junior"):
+		level = "Junior"
+	case strings.Contains(lower, "senior"):
+		level = "Senior"
+	}
+
+	switch {
+	case strings.Contains(lower, "fulltime"), strings.Contains(lower, "full-time"):
+		jobType = "Fulltime"
+	case strings.Contains(lower, "parttime"), strings.Contains(lower, "part-time"):
+		jobType = "Parttime"
+	}
+
+	return
+}
+
+func truncate(s string, max int) string {
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max]) + "..."
+}
+
 func buildJobEmbed(job JobEntry, page, total int) *discordgo.MessageEmbed {
+	desc := fmt.Sprintf("• **Role:** %s\n• **Company:** %s\n• **Location:** %s", job.Title, job.Company, job.Location)
+
+	tags := ""
+	if job.Level != "" {
+		tags += fmt.Sprintf("`%s` ", job.Level)
+	}
+	if job.Type != "" {
+		tags += fmt.Sprintf("`%s`", job.Type)
+	}
+	if tags != "" {
+		desc += fmt.Sprintf("\n• **Tags:** %s", strings.TrimSpace(tags))
+	}
+
+	desc += fmt.Sprintf("\n• **Apply:** [Open job](%s)", job.URL)
+
+	if job.Description != "" {
+		desc += fmt.Sprintf("\n\n%s", truncate(job.Description, 300))
+	}
 	return &discordgo.MessageEmbed{
 		Title:       job.Company,
-		Description: fmt.Sprintf("• **Role:** %s\n• **Location:** %s\n• **Apply:** [Open job](%s)", job.Title, job.Location, job.URL),
+		Description: desc,
 		Color:       0x5865F2,
 		Footer: &discordgo.MessageEmbedFooter{
-			Text: fmt.Sprintf("Job %d of %d • Powered by JobSpy + Neon", page, total),
+			Text: fmt.Sprintf("Page %d of %d", page, total),
 		},
 	}
 }
 
-func fetchJobs(dbURL string) ([]JobEntry, error) {
+func fetchJobs(dbURL string, level, jobType, location string) ([]JobEntry, error) {
 	ctx := context.Background()
 	conn, err := pgx.Connect(ctx, dbURL)
 	if err != nil {
@@ -213,13 +297,39 @@ func fetchJobs(dbURL string) ([]JobEntry, error) {
 	}
 	defer conn.Close(ctx)
 
-	rows, err := conn.Query(
-		ctx,
-		`SELECT title, company, location, job_url
-		 FROM jobs
-		 ORDER BY fetched_at DESC
-		 LIMIT 10`,
-	)
+	args := []interface{}{}
+	argIdx := 1
+	query := `SELECT COALESCE(title, ''), COALESCE(company, ''), COALESCE(location, ''), job_url, COALESCE(job_type, ''), COALESCE(description, '') FROM jobs`
+
+	var conditions []string
+	if level != "" {
+		conditions = append(conditions, fmt.Sprintf(`(title ILIKE $%d OR description ILIKE $%d)`, argIdx, argIdx+1))
+		args = append(args, "%"+level+"%", "%"+level+"%")
+		argIdx += 2
+	}
+	if jobType != "" {
+		conditions = append(conditions, fmt.Sprintf(`(job_type ILIKE $%d OR description ILIKE $%d)`, argIdx, argIdx+1))
+		args = append(args, "%"+jobType+"%", "%"+jobType+"%")
+		argIdx += 2
+	}
+	switch location {
+	case "HCM":
+		conditions = append(conditions, fmt.Sprintf(`(location ILIKE $%d OR location ILIKE $%d)`, argIdx, argIdx+1))
+		args = append(args, "%HCM%", "%Ho Chi Minh%")
+		argIdx += 2
+	case "HN":
+		conditions = append(conditions, fmt.Sprintf(`(location ILIKE $%d OR location ILIKE $%d OR location ILIKE $%d)`, argIdx, argIdx+1, argIdx+2))
+		args = append(args, "%HN%", "%Ha Noi%", "%Hanoi%")
+		argIdx += 3
+	}
+
+	if len(conditions) > 0 {
+		query += ` WHERE ` + strings.Join(conditions, " AND ")
+	}
+
+	query += ` ORDER BY fetched_at DESC LIMIT 20`
+
+	rows, err := conn.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -227,37 +337,84 @@ func fetchJobs(dbURL string) ([]JobEntry, error) {
 
 	var jobs []JobEntry
 	for rows.Next() {
-		var title, company, location, url string
-		if err := rows.Scan(&title, &company, &location, &url); err != nil {
+		var title, company, loc, url, jobTypeDB, description string
+		if err := rows.Scan(&title, &company, &loc, &url, &jobTypeDB, &description); err != nil {
 			continue
 		}
-		jobs = append(jobs, JobEntry{Title: title, Company: company, Location: location, URL: url})
+		md, err := htmltomarkdown.ConvertString(description)
+		if err == nil {
+			description = md
+		} else {
+			log.Printf("HTML-to-markdown conversion failed for job %s at %s: %v", title, company, err)
+		}
+
+		detectedLevel, detectedType := detectJobMeta(description)
+		if detectedLevel == "" && level != "" {
+			detectedLevel = level
+		}
+
+		jobs = append(jobs, JobEntry{
+			Title:       title,
+			Company:     company,
+			Location:    loc,
+			URL:         url,
+			Description: description,
+			Level:       detectedLevel,
+			Type:        detectedType,
+		})
 	}
 
-	return jobs, nil
+	var filtered []JobEntry
+	for _, j := range jobs {
+		if level != "" && j.Level != "" && !strings.EqualFold(j.Level, level) {
+			continue
+		}
+		if jobType != "" && j.Type != "" && !strings.EqualFold(j.Type, jobType) {
+			continue
+		}
+		filtered = append(filtered, j)
+	}
+
+	return filtered, nil
 }
 
 func handleJobsSlash(s *discordgo.Session, i *discordgo.InteractionCreate, dbURL string) {
-	jobs, err := fetchJobs(dbURL)
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+	})
 	if err != nil {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "❌ Failed to fetch jobs. Please try again later.",
-				Flags:   1 << 6,
-			},
+		log.Println("Slash jobs defer error:", err)
+		return
+	}
+
+	level := ""
+	jobType := ""
+	location := ""
+	for _, opt := range i.ApplicationCommandData().Options {
+		switch opt.Name {
+		case "level":
+			level = opt.StringValue()
+		case "time":
+			jobType = opt.StringValue()
+		case "location":
+			location = opt.StringValue()
+		}
+	}
+
+	jobs, err := fetchJobs(dbURL, level, jobType, location)
+	if err != nil {
+		content := "❌ Failed to fetch jobs. Please try again later."
+		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Content: &content,
 		})
 		log.Println("Slash jobs fetch error:", err)
 		return
 	}
 
 	if len(jobs) == 0 {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "⚠️ No jobs found in the database.",
-				Flags:   1 << 6,
-			},
+		content := "⚠️ No jobs found in the database."
+		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Content: &content,
 		})
 		return
 	}
@@ -281,21 +438,12 @@ func handleJobsSlash(s *discordgo.Session, i *discordgo.InteractionCreate, dbURL
 		},
 	}
 
-	err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds:     []*discordgo.MessageEmbed{embed},
-			Components: components,
-		},
+	msg, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Embeds:     &[]*discordgo.MessageEmbed{embed},
+		Components: &components,
 	})
 	if err != nil {
-		log.Println("Slash jobs send error:", err)
-		return
-	}
-
-	msg, err := s.InteractionResponse(i.Interaction)
-	if err != nil {
-		log.Println("Failed to read slash response message:", err)
+		log.Println("Slash jobs edit error:", err)
 		return
 	}
 

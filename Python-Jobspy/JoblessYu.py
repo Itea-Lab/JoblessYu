@@ -92,7 +92,7 @@ def JobScan():
         return
     
     #Pandas DataFrame to JSON
-    available_filters = ["id", "site", "job_url", "title", "company", "location", "job_type"]
+    available_filters = ["id", "site", "job_url", "title", "company", "location", "job_type", "description"]
     jobs = jobs[available_filters]
     jobs.to_json("jobs.json", orient="records", indent=4, force_ascii=False)
     print(f"{len(jobs)} jobs saved to jobs.json =w=")
