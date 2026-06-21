@@ -9,7 +9,7 @@ Before running the project, make sure you have the following installed:
 - **Python 3.12**
 - **PostgreSQL Database** ([NeonDB](https://neon.tech/))
 
-## Setup Instructions
+## Setup instructions
 
 ### 1. Environment variables
 Create a `.env` file in the root directory of the project and add the following configuration variables:
@@ -32,7 +32,7 @@ The python scraper requires a few packages. Install them using `pip`:
 pip install python-jobspy python-dotenv pandas "psycopg[binary]"
 ```
 
-## Running the application
+### 4. Running the application
 
 To start the bot and the scheduled scraper, run the following command from the root directory:
 
@@ -40,7 +40,7 @@ To start the bot and the scheduled scraper, run the following command from the r
 go run cmd/bot/main.go
 ```
 
-### How it works:
+### 5. How it works:
 - **Initialization:** The Go application initializes the Discord bot and connects to your PostgreSQL database.
 - **Scraping Schedule:** A background job scheduler is started, which automatically runs the Python scraper (`Python-Jobspy/JoblessYu.py`) every 6 hours.
 - **Python Scraper:** The script scrapes "IT Support" jobs (from Indeed and LinkedIn), saves them to a local `jobs.json` file, and upserts the records into your database.
