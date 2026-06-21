@@ -26,7 +26,7 @@ From the root of the project, download the required Go modules:
 go mod download
 ```
 
-### 3. Install python dependencies
+### 3. Install Python dependencies
 The python scraper requires a few packages. Install them using `pip`:
 ```bash
 pip install python-jobspy python-dotenv pandas "psycopg[binary]"
@@ -42,6 +42,6 @@ go run cmd/bot/main.go
 
 ### 5. How it works:
 - **Initialization:** The Go application initializes the Discord bot and connects to your PostgreSQL database.
-- **Scraping Schedule:** A background job scheduler is started, which automatically runs the Python scraper (`Python-Jobspy/JoblessYu.py`) every 6 hours.
-- **Python Scraper:** The script scrapes "IT Support" jobs (from Indeed and LinkedIn), saves them to a local `jobs.json` file, and upserts the records into your database.
-- **Graceful Shutdown:** You can stop the application safely at any time by pressing `CTRL+C` in your terminal.
+- **Scraping schedule:** A background job scheduler is started, which automatically runs the Python scraper (`Python-Jobspy/JoblessYu.py`) every 6 hours.
+- **Python scraper:** The script scrapes "IT Support" jobs (from Indeed and LinkedIn), saves them to a local `jobs.json` file, and upserts the records into your database.
+- **Graceful shutdown:** You can stop the application safely at any time by pressing `CTRL+C` in your terminal.
