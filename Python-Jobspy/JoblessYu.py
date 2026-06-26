@@ -35,14 +35,17 @@ def save_jobs_to_neon(jobs_df):
         company TEXT,
         location TEXT,
         job_type TEXT,
+        description TEXT,
         fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         UNIQUE (site, job_url)
     );
     """
 
+    alter_table_sql = "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS description TEXT;"
+
     insert_sql = """
-    INSERT INTO jobs (job_id, site, job_url, title, company, location, job_type)
-    VALUES (%s, %s, %s, %s, %s, %s, %s)
+    INSERT INTO jobs (job_id, site, job_url, title, company, location, job_type, description)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (site, job_url)
     DO UPDATE SET
         job_id = EXCLUDED.job_id,
@@ -50,6 +53,7 @@ def save_jobs_to_neon(jobs_df):
         company = EXCLUDED.company,
         location = EXCLUDED.location,
         job_type = EXCLUDED.job_type,
+        description = EXCLUDED.description,
         fetched_at = NOW();
     """
 
@@ -62,21 +66,29 @@ def save_jobs_to_neon(jobs_df):
             _to_nullable(row["company"]),
             _to_nullable(row["location"]),
             _to_nullable(row["job_type"]),
+            _to_nullable(row["description"]),
         )
         for _, row in jobs_df.iterrows()
     ]
 
-    with psycopg.connect(database_url) as conn:
-        with conn.cursor() as cur:
-            cur.execute(create_table_sql)
-            cur.executemany(insert_sql, rows)
-        conn.commit()
+    print("Connecting to NeonDB...", flush=True)
+    try:
+        with psycopg.connect(database_url, connect_timeout=10) as conn:
+            print("Connected to NeonDB. Creating table...", flush=True)
+            with conn.cursor() as cur:
+                cur.execute(create_table_sql)
+                cur.execute(alter_table_sql)
+                print("Table created. Saving data...", flush=True)
+                cur.executemany(insert_sql, rows)
+            conn.commit()
+        print(f"{len(rows)} jobs upserted to Neon.", flush=True)
+    except Exception as e:
+        print("Error connecting to NeonDB:", e, flush=True)
 
-    print(f"{len(rows)} jobs upserted to Neon.")
 
 def JobScan():
     print("JoblessYu is looking for jobs =w=")
-    
+
     # Scrape jobs using JobSpy.
     jobs = scrape_jobs(
         site_name=["indeed", "linkedin"],
@@ -90,14 +102,15 @@ def JobScan():
     if jobs.empty:
         print("There are no jobs at the moment :c")
         return
-    
-    #Pandas DataFrame to JSON
-    available_filters = ["id", "site", "job_url", "title", "company", "location", "job_type", "description"]
+
+    # Pandas DataFrame to JSON
+    available_filters = ["id", "site", "job_url", "title",
+                         "company", "location", "job_type", "description"]
     jobs = jobs[available_filters]
     jobs.to_json("jobs.json", orient="records", indent=4, force_ascii=False)
     print(f"{len(jobs)} jobs saved to jobs.json =w=")
     save_jobs_to_neon(jobs)
-    
+
 
 if __name__ == "__main__":
     JobScan()

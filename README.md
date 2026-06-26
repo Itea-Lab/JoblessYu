@@ -1,40 +1,47 @@
-# JoblessYu
-Discordgo - Job Scalper Bot
+# JoblessYu Vessel
 
-## Get Started with Neon
+JoblessYu Vessel is a Discord bot built in Go that scrapes job listings using a Python script and stores the data in a PostgreSQL database.
 
-This repo can now save scraped jobs to Neon using `DATABASE_URL`.
+## Prerequisites
 
-### 1) Set your Neon connection string
+Before running the project, make sure you have the following installed:
+- **Go 1.26.3** or later
+- **Python 3.12**
+- **PostgreSQL Database** ([NeonDB](https://neon.tech/))
 
-Your local `.env` is already gitignored. Add:
+## Setup instructions
 
+### 1. Environment variables
+Create a `.env` file in the root directory of the project and add the following configuration variables:
 
-### 2) Install Python dependencies
+```env
+DISCORD_BOT_TOKEN=your_discord_bot_token
+DISCORD_CHANNEL_ID=your_discord_channel_id
+DATABASE_URL=your_postgresql_connection_string
+```
 
-From the project root:
+### 2. Install Go dependencies
+From the root of the project, download the required Go modules:
+```bash
+go mod download
+```
+
+### 3. Install Python dependencies
+The python scraper requires a few packages. Install them using `pip`:
+```bash
+pip install python-jobspy python-dotenv pandas "psycopg[binary]"
+```
+
+### 4. Running the application
+
+To start the bot and the scheduled scraper, run the following command from the root directory:
 
 ```bash
-source .venv/bin/activate
-pip install pandas python-jobspy "psycopg[binary]"
+go run cmd/bot/main.go
 ```
 
-### 3) Run the scraper
-
-```bash
-cd Python-Jobspy
-python JoblessYu.py
-```
-
-### 4) Verify jobs in Neon
-
-The script creates a `jobs` table automatically and upserts records by `(site, job_url)`.
-
-Example SQL:
-
-```sql
-SELECT site, title, company, location, fetched_at
-FROM jobs
-ORDER BY fetched_at DESC
-LIMIT 20;
-```
+### 5. How it works:
+- **Initialization:** The Go application initializes the Discord bot and connects to your PostgreSQL database.
+- **Scraping schedule:** A background job scheduler is started, which automatically runs the Python scraper (`Python-Jobspy/JoblessYu.py`) every 6 hours.
+- **Python scraper:** The script scrapes "IT Support" jobs (from Indeed and LinkedIn), saves them to a local `jobs.json` file, and upserts the records into your database.
+- **Graceful shutdown:** You can stop the application safely at any time by pressing `CTRL+C` in your terminal.
