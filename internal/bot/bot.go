@@ -3,6 +3,7 @@ package bot
 import (
 	"log"
 	"sync"
+	"time"
 
 	"JoblessYu/internal/config"
 	"JoblessYu/internal/domain"
@@ -11,13 +12,25 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
+const (
+	jobsCacheTTL        = 30 * time.Minute
+	jobsCacheSweepEvery = 1 * time.Minute
+)
+
+type cachedJobs struct {
+	jobs       []domain.JobEntry
+	insertedAt time.Time
+}
+
 type Bot struct {
 	session    *discordgo.Session
 	cfg        *config.Config
 	jobService *service.JobService
 
-	jobsCache map[string][]domain.JobEntry
+	jobsCache map[string]cachedJobs
 	cacheLock sync.RWMutex
+
+	stopJanitor chan struct{}
 }
 
 var commands = []*discordgo.ApplicationCommand{
@@ -28,17 +41,18 @@ var commands = []*discordgo.ApplicationCommand{
 			{
 				Type:        discordgo.ApplicationCommandOptionString,
 				Name:        "level",
-				Description: "Job experience level",
-				Required:    true,
+				Description: "Job experience level (optional)",
+				Required:    false,
 				Choices: []*discordgo.ApplicationCommandOptionChoice{
 					{Name: "Intern", Value: "Intern"},
+					{Name: "Fresher", Value: "Fresher"},
 					{Name: "Junior", Value: "Junior"},
 					{Name: "Senior", Value: "Senior"},
 				},
 			},
 			{
 				Type:        discordgo.ApplicationCommandOptionString,
-				Name:        "time",
+				Name:        "type",
 				Description: "Job type (optional)",
 				Required:    false,
 				Choices: []*discordgo.ApplicationCommandOptionChoice{
@@ -74,10 +88,11 @@ func NewBot(cfg *config.Config, jobService *service.JobService) (*Bot, error) {
 			discordgo.IntentsMessageContent
 
 	bot := &Bot{
-		session:    session,
-		cfg:        cfg,
-		jobService: jobService,
-		jobsCache:  make(map[string][]domain.JobEntry),
+		session:     session,
+		cfg:         cfg,
+		jobService:  jobService,
+		jobsCache:   make(map[string]cachedJobs),
+		stopJanitor: make(chan struct{}),
 	}
 
 	bot.session.AddHandler(func(s *discordgo.Session, m *discordgo.MessageCreate) {
@@ -96,7 +111,36 @@ func NewBot(cfg *config.Config, jobService *service.JobService) (*Bot, error) {
 
 	bot.session.AddHandler(bot.handleInteraction)
 
+	go bot.cacheJanitor()
+
 	return bot, nil
+}
+
+func (b *Bot) cacheJanitor() {
+	ticker := time.NewTicker(jobsCacheSweepEvery)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			b.evictExpired()
+		case <-b.stopJanitor:
+			return
+		}
+	}
+}
+
+func (b *Bot) evictExpired() {
+	now := time.Now()
+
+	b.cacheLock.Lock()
+	defer b.cacheLock.Unlock()
+
+	for id, c := range b.jobsCache {
+		if now.Sub(c.insertedAt) > jobsCacheTTL {
+			delete(b.jobsCache, id)
+		}
+	}
 }
 
 func (b *Bot) Start() error {
@@ -104,29 +148,19 @@ func (b *Bot) Start() error {
 		return err
 	}
 
-	for _, cmd := range commands {
-		existing, err := b.session.ApplicationCommands(b.session.State.User.ID, b.cfg.DiscordGuild)
-		if err == nil {
-			skip := false
-			for _, existingCmd := range existing {
-				if existingCmd.Name == cmd.Name {
-					skip = true
-					break
-				}
-			}
-			if skip {
-				continue
-			}
-		}
-		_, err = b.session.ApplicationCommandCreate(b.session.State.User.ID, b.cfg.DiscordGuild, cmd)
-		if err != nil {
-			log.Println("Failed to register slash command:", err)
-		}
+	// BulkOverwrite the guild command set atomically. Handles additions,
+	// removals, renames, option edits, and choice updates in one call, so
+	// stale options (e.g. a renamed `time` -> `type`) don't linger in Discord.
+	if _, err := b.session.ApplicationCommandBulkOverwrite(
+		b.session.State.User.ID, b.cfg.DiscordGuild, commands,
+	); err != nil {
+		log.Println("Failed to overwrite slash commands:", err)
 	}
 
 	return nil
 }
 
 func (b *Bot) Stop() {
+	close(b.stopJanitor)
 	b.session.Close()
 }

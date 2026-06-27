@@ -2,13 +2,19 @@ package service
 
 import (
 	"context"
-	"log"
+	"fmt"
+	"regexp"
 	"strings"
 
 	"JoblessYu/internal/domain"
 	"JoblessYu/internal/repository"
+)
 
-	"github.com/JohannesKaufmann/html-to-markdown/v2"
+var (
+	levelRe = regexp.MustCompile(`(?i)\b(internships?|interns?|juniors?|seniors?)\b`)
+	typeRe  = regexp.MustCompile(`(?i)\b(full[ -]?time|part[ -]?time)\b`)
+	yearsRe = regexp.MustCompile(`(?i)\b(\d{1,2})\s*\+?\s*(?:years?|yrs?)\b`)
+	htmlRe  = regexp.MustCompile(`<[^>]*>`)
 )
 
 type JobService struct {
@@ -28,21 +34,15 @@ func (s *JobService) FetchAndProcessJobs(ctx context.Context, level, jobType, lo
 	var filtered []domain.JobEntry
 
 	for _, j := range rawJobs {
-		// Convert HTML to Markdown
-		md, err := htmltomarkdown.ConvertString(j.Description)
-		if err == nil {
-			j.Description = md
-		} else {
-			log.Printf("HTML-to-markdown conversion failed for job %s at %s: %v", j.Title, j.Company, err)
+		detectedLevel, detectedType := s.detectJobMeta(j.Title, j.Description)
+		if j.Level == "" {
+			j.Level = detectedLevel
 		}
-
-		detectedLevel, detectedType := s.detectJobMeta(j.Description)
-		if detectedLevel == "" && level != "" {
-			detectedLevel = level
+		// Prefer the authoritative job_type from the database; only fall back to
+		// the description scan result when the DB column is empty.
+		if j.Type == "" {
+			j.Type = detectedType
 		}
-
-		j.Level = detectedLevel
-		j.Type = detectedType
 
 		if level != "" && j.Level != "" && !strings.EqualFold(j.Level, level) {
 			continue
@@ -57,23 +57,48 @@ func (s *JobService) FetchAndProcessJobs(ctx context.Context, level, jobType, lo
 	return filtered, nil
 }
 
-func (s *JobService) detectJobMeta(description string) (level, jobType string) {
-	lower := strings.ToLower(description)
+func (s *JobService) detectJobMeta(title, description string) (level, jobType string) {
+	// Strip HTML tags so level/type words cannot match inside attribute values
+	// (e.g. <div class="job-senior-card">). Only the visible body text remains.
+	plain := htmlRe.ReplaceAllString(title+"\n"+description, " ")
+	hay := strings.ToLower(plain)
 
-	switch {
-	case strings.Contains(lower, "intern"):
-		level = "Intern"
-	case strings.Contains(lower, "junior"):
-		level = "Junior"
-	case strings.Contains(lower, "senior"):
-		level = "Senior"
+	// Authoritative: an explicit level word wins, years-of-experience is
+	// only consulted when no level word is found anywhere in the text.
+	if m := levelRe.FindString(hay); m != "" {
+		stem := strings.TrimSuffix(strings.ToLower(m), "s")
+		switch stem {
+		case "internship", "intern":
+			level = "Intern"
+		case "junior":
+			level = "Junior"
+		case "senior":
+			level = "Senior"
+		}
+	}
+	if level == "" {
+		if m := yearsRe.FindStringSubmatch(hay); m != nil {
+			var n int
+			if _, err := fmt.Sscanf(m[1], "%d", &n); err == nil {
+				switch {
+				case n <= 1:
+					level = "Fresher"
+				case n <= 4:
+					level = "Junior"
+				default:
+					level = "Senior"
+				}
+			}
+		}
 	}
 
-	switch {
-	case strings.Contains(lower, "fulltime"), strings.Contains(lower, "full-time"):
-		jobType = "Fulltime"
-	case strings.Contains(lower, "parttime"), strings.Contains(lower, "part-time"):
-		jobType = "Parttime"
+	if m := typeRe.FindString(hay); m != "" {
+		switch strings.ToLower(m) {
+		case "full-time", "full time", "fulltime":
+			jobType = "Fulltime"
+		case "part-time", "part time", "parttime":
+			jobType = "Parttime"
+		}
 	}
 
 	return

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -17,7 +18,14 @@ import (
 func main() {
 	cfg := config.Load()
 
-	repo := repository.NewJobRepository(cfg.DatabaseURL)
+	ctx := context.Background()
+
+	repo, err := repository.NewJobRepository(ctx, cfg.DatabaseURL)
+	if err != nil {
+		log.Fatal("Error creating job repository:", err)
+	}
+	defer repo.Close()
+
 	svc := service.NewJobService(repo)
 
 	disbot, err := bot.NewBot(cfg, svc)

@@ -137,6 +137,9 @@ Thumbs.db
 
 # --- Custom Project Settings ---
 
+# Scraped job data output
+jobs.json
+
 # NeonDB connection string
 skills-lock.json
 .agents

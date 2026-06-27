@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -20,19 +21,36 @@ func (b *Bot) handleInteraction(s *discordgo.Session, i *discordgo.InteractionCr
 		return
 	}
 
-	if i.Message == nil || i.Message.ID == "" {
+	if i.Message == nil {
+		return
+	}
+
+	// The cache is keyed primarily on the original interaction ID that created
+	// the job-list message. Discord populates i.Message.Interaction for
+	// interaction-response messages, so a button click resolves back to the
+	// slash command's interaction ID. We fall back to the message ID for
+	// robustness against any discordgo version quirk.
+	cacheKey := ""
+	if i.Message.Interaction != nil {
+		cacheKey = i.Message.Interaction.ID
+	}
+	if cacheKey == "" {
+		cacheKey = i.Message.ID
+	}
+	if cacheKey == "" {
 		return
 	}
 
 	b.cacheLock.RLock()
-	jobs, ok := b.jobsCache[i.Message.ID]
+	cached, ok := b.jobsCache[cacheKey]
 	b.cacheLock.RUnlock()
+	jobs := cached.jobs
 	if !ok || len(jobs) == 0 {
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "⚠️ This job list has expired. Please run `/jobs` again.",
-				Flags:   1 << 6,
+				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
 		return
@@ -104,7 +122,7 @@ func (b *Bot) handleJobsSlash(s *discordgo.Session, i *discordgo.InteractionCrea
 		switch opt.Name {
 		case "level":
 			level = opt.StringValue()
-		case "time":
+		case "type":
 			jobType = opt.StringValue()
 		case "location":
 			location = opt.StringValue()
@@ -158,7 +176,14 @@ func (b *Bot) handleJobsSlash(s *discordgo.Session, i *discordgo.InteractionCrea
 		return
 	}
 
+	// Key on the original interaction ID (matches what the button-click handler
+	// reads via i.Message.Interaction.ID). Also write under msg.ID when Discord
+	// returns it, as a defensive fallback.
 	b.cacheLock.Lock()
-	b.jobsCache[msg.ID] = jobs
+	entry := cachedJobs{jobs: jobs, insertedAt: time.Now()}
+	b.jobsCache[i.Interaction.ID] = entry
+	if msg != nil && msg.ID != "" {
+		b.jobsCache[msg.ID] = entry
+	}
 	b.cacheLock.Unlock()
 }

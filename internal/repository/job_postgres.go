@@ -3,36 +3,64 @@ package repository
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
+
 	"JoblessYu/internal/domain"
-	"github.com/jackc/pgx/v5"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type JobRepository struct {
-	dbURL string
+	pool *pgxpool.Pool
 }
 
-func NewJobRepository(dbURL string) *JobRepository {
-	return &JobRepository{dbURL: dbURL}
+// levelYearPatterns maps a requested level to a case-insensitive PostgreSQL
+// regex (~*) that matches a year-of-experience mention corresponding to that
+// bucket. Intern has no entry: internships are word-tagged, not year-tagged.
+// Pattern uses \m (start-of-word boundary) so "1 years" matches but "21 years"
+// does not collapse into the 1-year bucket.
+var levelYearPatterns = map[string]string{
+	"Fresher": `\m(0|1)\s*\+?\s*years?`,
+	"Junior":  `\m(2|3|4)\s*\+?\s*years?`,
+	"Senior":  `\m([5-9]|\d{2})\s*\+?\s*years?`,
+}
+
+func NewJobRepository(ctx context.Context, dbURL string) (*JobRepository, error) {
+	cfg, err := pgxpool.ParseConfig(dbURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse db url: %w", err)
+	}
+
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("create pool: %w", err)
+	}
+
+	return &JobRepository{pool: pool}, nil
+}
+
+func (r *JobRepository) Close() {
+	r.pool.Close()
 }
 
 // FetchRawJobs fetches jobs from DB before markdown conversion and detailed filtering.
 func (r *JobRepository) FetchRawJobs(ctx context.Context, level, jobType, location string) ([]domain.JobEntry, error) {
-	conn, err := pgx.Connect(ctx, r.dbURL)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close(ctx)
-
 	args := []interface{}{}
 	argIdx := 1
 	query := `SELECT COALESCE(title, ''), COALESCE(company, ''), COALESCE(location, ''), job_url, COALESCE(job_type, ''), COALESCE(description, '') FROM jobs`
 
 	var conditions []string
 	if level != "" {
-		conditions = append(conditions, fmt.Sprintf(`(title ILIKE $%d OR description ILIKE $%d)`, argIdx, argIdx+1))
-		args = append(args, "%"+level+"%", "%"+level+"%")
-		argIdx += 2
+		if pat, ok := levelYearPatterns[level]; ok {
+			conditions = append(conditions, fmt.Sprintf(`(title ILIKE $%d OR description ILIKE $%d OR description ~* $%d)`, argIdx, argIdx+1, argIdx+2))
+			args = append(args, "%"+level+"%", "%"+level+"%", pat)
+			argIdx += 3
+		} else {
+			conditions = append(conditions, fmt.Sprintf(`(title ILIKE $%d OR description ILIKE $%d)`, argIdx, argIdx+1))
+			args = append(args, "%"+level+"%", "%"+level+"%")
+			argIdx += 2
+		}
 	}
 	if jobType != "" {
 		conditions = append(conditions, fmt.Sprintf(`(job_type ILIKE $%d OR description ILIKE $%d)`, argIdx, argIdx+1))
@@ -56,7 +84,7 @@ func (r *JobRepository) FetchRawJobs(ctx context.Context, level, jobType, locati
 
 	query += ` ORDER BY fetched_at DESC LIMIT 20`
 
-	rows, err := conn.Query(ctx, query, args...)
+	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -66,17 +94,19 @@ func (r *JobRepository) FetchRawJobs(ctx context.Context, level, jobType, locati
 	for rows.Next() {
 		var title, company, loc, url, jobTypeDB, description string
 		if err := rows.Scan(&title, &company, &loc, &url, &jobTypeDB, &description); err != nil {
+			log.Printf("job repository: scan error (skipping row): %v", err)
 			continue
 		}
-		
+
 		jobs = append(jobs, domain.JobEntry{
 			Title:       title,
 			Company:     company,
 			Location:    loc,
 			URL:         url,
 			Description: description,
+			Type:        jobTypeDB,
 		})
 	}
 
-	return jobs, nil
+	return jobs, rows.Err()
 }
