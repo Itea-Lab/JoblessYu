@@ -12,6 +12,7 @@ import (
 
 var (
 	levelRe = regexp.MustCompile(`(?i)\b(internships?|interns?|juniors?|seniors?)\b`)
+	noExpRe = regexp.MustCompile(`(?i)\b(no|zero)\s+(experience|exp)\b`)
 	typeRe  = regexp.MustCompile(`(?i)\b(full[ -]?time|part[ -]?time)\b`)
 	yearsRe = regexp.MustCompile(`(?i)\b(\d{1,2})\s*\+?\s*(?:years?|yrs?)\b`)
 	htmlRe  = regexp.MustCompile(`<[^>]*>`)
@@ -91,13 +92,17 @@ func (s *JobService) detectJobMeta(title, description string) (level, jobType st
 		}
 		if maxYears >= 0 {
 			switch {
-			case maxYears <= 1:
+			case maxYears == 0:
+				level = "Intern"
+			case maxYears <= 2:
 				level = "Fresher"
 			case maxYears <= 4:
 				level = "Junior"
 			default:
 				level = "Senior"
 			}
+		} else if noExpRe.MatchString(hay) {
+			level = "Intern"
 		}
 	}
 

@@ -17,12 +17,14 @@ type JobRepository struct {
 
 // levelYearPatterns maps a requested level to a case-insensitive PostgreSQL
 // regex (~*) that matches a year-of-experience mention corresponding to that
-// bucket. Intern has no entry: internships are word-tagged, not year-tagged.
+// bucket. Bucket boundaries (per MVP spec):
+//   Intern: 0 years | Fresher: 1-2 years | Junior: 3-4 years | Senior: 5+ years
 // Pattern uses \m (start-of-word boundary) so "1 years" matches but "21 years"
 // does not collapse into the 1-year bucket.
 var levelYearPatterns = map[string]string{
-	"Fresher": `\m(0|1)\s*\+?\s*years?`,
-	"Junior":  `\m(2|3|4)\s*\+?\s*years?`,
+	"Intern":  `\m0\s*\+?\s*years?`,
+	"Fresher": `\m(1|2)\s*\+?\s*years?`,
+	"Junior":  `\m(3|4)\s*\+?\s*years?`,
 	"Senior":  `\m([5-9]|\d{2})\s*\+?\s*years?`,
 }
 

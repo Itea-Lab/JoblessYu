@@ -6,7 +6,7 @@ JoblessYu Vessel is a Discord bot built in Go that scrapes job listings using a 
 
 Before running the project, make sure you have the following installed:
 - **Go 1.26.3** or later
-- **Python 3.12**
+- **Python 3.13**
 - **PostgreSQL Database** ([NeonDB](https://neon.tech/))
 
 ## Setup instructions
@@ -27,8 +27,19 @@ go mod download
 ```
 
 ### 3. Install Python dependencies
-The python scraper requires a few packages. Install them using `pip`:
+The python scraper requires a few packages. It is recommended to use a virtual environment:
+
+**Mac / Linux:**
 ```bash
+python3 -m venv Python-Jobspy/.venv
+source Python-Jobspy/.venv/bin/activate
+pip install python-jobspy python-dotenv pandas "psycopg[binary]"
+```
+
+**Windows (PowerShell):**
+```powershell
+python -m venv Python-Jobspy\.venv
+.\Python-Jobspy\.venv\Scripts\Activate.ps1
 pip install python-jobspy python-dotenv pandas "psycopg[binary]"
 ```
 
