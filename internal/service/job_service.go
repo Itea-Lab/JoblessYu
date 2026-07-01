@@ -77,17 +77,26 @@ func (s *JobService) detectJobMeta(title, description string) (level, jobType st
 		}
 	}
 	if level == "" {
-		if m := yearsRe.FindStringSubmatch(hay); m != nil {
+		// Pick the highest year-of-experience mention across the whole text.
+		// JDs commonly list parallel skill requirements (e.g. "1 year React
+		// AND 5 years Node"); the seniority bar is set by the maximum, not
+		// the leftmost or the sum.
+		matches := yearsRe.FindAllStringSubmatch(hay, -1)
+		maxYears := -1
+		for _, m := range matches {
 			var n int
-			if _, err := fmt.Sscanf(m[1], "%d", &n); err == nil {
-				switch {
-				case n <= 1:
-					level = "Fresher"
-				case n <= 4:
-					level = "Junior"
-				default:
-					level = "Senior"
-				}
+			if _, err := fmt.Sscanf(m[1], "%d", &n); err == nil && n > maxYears {
+				maxYears = n
+			}
+		}
+		if maxYears >= 0 {
+			switch {
+			case maxYears <= 1:
+				level = "Fresher"
+			case maxYears <= 4:
+				level = "Junior"
+			default:
+				level = "Senior"
 			}
 		}
 	}
