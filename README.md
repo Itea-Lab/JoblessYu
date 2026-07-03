@@ -5,6 +5,7 @@ JoblessYu Vessel is a Discord bot built in Go that scrapes job listings using a 
 ## Prerequisites
 
 Before running the project, make sure you have the following installed:
+
 - **Go 1.26.3** or later
 - **Python 3.13**
 - **PostgreSQL Database** ([NeonDB](https://neon.tech/))
@@ -12,6 +13,7 @@ Before running the project, make sure you have the following installed:
 ## Setup instructions
 
 ### 1. Environment variables
+
 Create a `.env` file in the root directory of the project and add the following configuration variables:
 
 ```env
@@ -21,15 +23,19 @@ DATABASE_URL=your_postgresql_connection_string
 ```
 
 ### 2. Install Go dependencies
+
 From the root of the project, download the required Go modules:
+
 ```bash
 go mod download
 ```
 
 ### 3. Install Python dependencies
+
 The python scraper requires a few packages. It is recommended to use a virtual environment:
 
 **Mac / Linux:**
+
 ```bash
 python3 -m venv Python-Jobspy/.venv
 source Python-Jobspy/.venv/bin/activate
@@ -37,6 +43,7 @@ pip install python-jobspy python-dotenv pandas "psycopg[binary]"
 ```
 
 **Windows (PowerShell):**
+
 ```powershell
 python -m venv Python-Jobspy\.venv
 .\Python-Jobspy\.venv\Scripts\Activate.ps1
@@ -51,7 +58,8 @@ To start the bot and the scheduled scraper, run the following command from the r
 go run cmd/bot/main.go
 ```
 
-### 5. How it works:
+### 5. How it works
+
 - **Initialization:** The Go application initializes the Discord bot and connects to your PostgreSQL database.
 - **Scraping schedule:** A background job scheduler is started, which automatically runs the Python scraper (`Python-Jobspy/JoblessYu.py`) every 6 hours.
 - **Python scraper:** The script scrapes "IT Support" jobs (from Indeed and LinkedIn), saves them to a local `jobs.json` file, and upserts the records into your database.
