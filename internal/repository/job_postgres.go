@@ -15,18 +15,40 @@ type JobRepository struct {
 	pool *pgxpool.Pool
 }
 
-// levelYearPatterns maps a requested level to a case-insensitive PostgreSQL
-// regex (~*) that matches a year-of-experience mention corresponding to that
-// bucket. Bucket boundaries (per MVP spec):
-//   Intern: 0 years | Fresher: 1-2 years | Junior: 3-4 years | Senior: 5+ years
-// Pattern uses \m (start-of-word boundary) so "1 years" matches but "21 years"
-// does not collapse into the 1-year bucket.
-var levelYearPatterns = map[string]string{
-	"Intern":  `\m0\s*\+?\s*years?`,
-	"Fresher": `\m(1|2)\s*\+?\s*years?`,
-	"Junior":  `\m(3|4)\s*\+?\s*years?`,
-	"Senior":  `\m([5-9]|\d{2})\s*\+?\s*years?`,
-}
+// levelWordPatterns, levelYearPatterns and levelNoExpPatterns are DERIVED from
+// internal/domain.LevelRules — the single source of truth for level
+// detection. Do not edit them here; add/modify a LevelRule in domain
+// instead. Postgres uses \m...\M (start/end-of-word) boundaries which
+// behave equivalently to Go's (?i)\b...\b for the ASCII-only word
+// shapes we use, so the same WordPattern/NoExpPattern source embeds safely
+// in both engines' regexes.
+var (
+	levelWordPatterns = func() map[string]string {
+		out := make(map[string]string, len(domain.LevelRules))
+		for _, r := range domain.LevelRules {
+			out[r.Name] = `\m(?:` + r.WordPattern + `)\M`
+		}
+		return out
+	}()
+	levelYearPatterns = func() map[string]string {
+		out := make(map[string]string, len(domain.LevelRules))
+		for _, r := range domain.LevelRules {
+			if r.YearPattern != "" {
+				out[r.Name] = r.YearPattern
+			}
+		}
+		return out
+	}()
+	levelNoExpPatterns = func() map[string]string {
+		out := make(map[string]string)
+		for _, r := range domain.LevelRules {
+			if r.NoExpPattern != "" {
+				out[r.Name] = `\m(?:` + r.NoExpPattern + `)\M`
+			}
+		}
+		return out
+	}()
+)
 
 func NewJobRepository(ctx context.Context, dbURL string) (*JobRepository, error) {
 	cfg, err := pgxpool.ParseConfig(dbURL)
@@ -46,22 +68,67 @@ func (r *JobRepository) Close() {
 	r.pool.Close()
 }
 
-// FetchRawJobs fetches jobs from DB before markdown conversion and detailed filtering.
-func (r *JobRepository) FetchRawJobs(ctx context.Context, level, jobType, location string) ([]domain.JobEntry, error) {
+// FetchRawJobs fetches jobs from DB before markdown conversion and detailed
+// filtering.
+//
+// When level is set and includeUnknown is false (the default), the SQL
+// WHERE clause restricts rows to those already carrying the requested level
+// signal: the level word (in title or description), the years-of-experience
+// regex (description), or the no-experience-phrase regex (title or
+// description). All three predicates are OR'd so the service-layer
+// classify-then-strict-filter sees a pre-filtered set that mirrors its own
+// detection logic — no DB↔service drift.
+//
+// When includeUnknown is true AND a level is requested, the level predicate
+// is omitted entirely from SQL — fetch is widened to all rows matching the
+// other filters, and the service-layer strict filter then classifies each
+// row, keeping the requested level OR Unknown rows. This preserves the
+// include_unknown contract for rows the DB-side regex can't recognize as
+// the requested level but which detectJobMeta would still flag Unknown.
+//
+// includeUnknown has no effect when level is empty.
+func (r *JobRepository) FetchRawJobs(ctx context.Context, level, jobType, location string, includeUnknown bool) ([]domain.JobEntry, error) {
 	args := []interface{}{}
 	argIdx := 1
 	query := `SELECT COALESCE(title, ''), COALESCE(company, ''), COALESCE(location, ''), job_url, COALESCE(job_type, ''), COALESCE(description, '') FROM jobs`
 
 	var conditions []string
-	if level != "" {
-		if pat, ok := levelYearPatterns[level]; ok {
-			conditions = append(conditions, fmt.Sprintf(`(title ILIKE $%d OR description ILIKE $%d OR description ~* $%d)`, argIdx, argIdx+1, argIdx+2))
-			args = append(args, "%"+level+"%", "%"+level+"%", pat)
-			argIdx += 3
-		} else {
-			conditions = append(conditions, fmt.Sprintf(`(title ILIKE $%d OR description ILIKE $%d)`, argIdx, argIdx+1))
-			args = append(args, "%"+level+"%", "%"+level+"%")
-			argIdx += 2
+	if level != "" && !includeUnknown {
+		// Apply the DB-side level predicate only when the caller wants the
+		// strict (narrow) path. When includeUnknown is set, drop the
+		// predicate so unclassified rows reach service-layer classification.
+		wordPat := levelWordPatterns[level]
+		yearPat, hasYearPat := levelYearPatterns[level]
+		noExpPat, hasNoExpPat := levelNoExpPatterns[level]
+
+		var levelConds []string
+		if wordPat != "" {
+			levelConds = append(levelConds, fmt.Sprintf(`title ~* $%d`, argIdx))
+			args = append(args, wordPat)
+			argIdx++
+			levelConds = append(levelConds, fmt.Sprintf(`description ~* $%d`, argIdx))
+			args = append(args, wordPat)
+			argIdx++
+		}
+		if hasYearPat {
+			levelConds = append(levelConds, fmt.Sprintf(`description ~* $%d`, argIdx))
+			args = append(args, yearPat)
+			argIdx++
+		}
+		// no-exp phrase is checked against BOTH title and description, mirroring
+		// the service layer's detectJobMeta scan which combines title+desc.
+		// This keeps DB admissibility in sync with service classification.
+		if hasNoExpPat {
+			levelConds = append(levelConds, fmt.Sprintf(`title ~* $%d`, argIdx))
+			args = append(args, noExpPat)
+			argIdx++
+			levelConds = append(levelConds, fmt.Sprintf(`description ~* $%d`, argIdx))
+			args = append(args, noExpPat)
+			argIdx++
+		}
+
+		if len(levelConds) > 0 {
+			conditions = append(conditions, "("+strings.Join(levelConds, " OR ")+")")
 		}
 	}
 	if jobType != "" {

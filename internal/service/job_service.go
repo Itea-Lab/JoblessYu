@@ -11,8 +11,12 @@ import (
 )
 
 var (
-	levelRe = regexp.MustCompile(`(?i)\b(internships?|interns?|juniors?|seniors?)\b`)
-	noExpRe = regexp.MustCompile(`(?i)\b(no|zero)\s+(experience|exp)\b`)
+	// noExpRe is DERIVED from internal/domain.LevelRules (single source of
+	// truth for the no-experience-phrase pattern). Compiled once at package
+	// init to avoid re-allocating on each detectJobMeta call. Keep the
+	// canonical source in domain.LevelRules; if a new level gains its own
+	// no-exp phrase there, extend the helper rather than this literal.
+	noExpRe = regexp.MustCompile(`(?i)\b` + domain.NoExpAlternationForRegex() + `\b`)
 	typeRe  = regexp.MustCompile(`(?i)\b(full[ -]?time|part[ -]?time)\b`)
 	yearsRe = regexp.MustCompile(`(?i)\b(\d{1,2})\s*\+?\s*(?:years?|yrs?)\b`)
 	htmlRe  = regexp.MustCompile(`<[^>]*>`)
@@ -26,8 +30,11 @@ func NewJobService(repo *repository.JobRepository) *JobService {
 	return &JobService{repo: repo}
 }
 
-func (s *JobService) FetchAndProcessJobs(ctx context.Context, level, jobType, location string) ([]domain.JobEntry, error) {
-	rawJobs, err := s.repo.FetchRawJobs(ctx, level, jobType, location)
+func (s *JobService) FetchAndProcessJobs(ctx context.Context, level, jobType, location string, includeUnknown bool) ([]domain.JobEntry, error) {
+	// Pass includeUnknown through to the repository so it can drop the
+	// DB-side level predicate entirely when the caller wants unclassified
+	// rows to reach service-layer classification (see FetchRawJobs docs).
+	rawJobs, err := s.repo.FetchRawJobs(ctx, level, jobType, location, includeUnknown)
 	if err != nil {
 		return nil, err
 	}
@@ -45,8 +52,22 @@ func (s *JobService) FetchAndProcessJobs(ctx context.Context, level, jobType, lo
 			j.Type = detectedType
 		}
 
-		if level != "" && j.Level != "" && !strings.EqualFold(j.Level, level) {
-			continue
+		// Scan for skill/tool tags. Reuse the same HTML-stripped plain text
+		// used by detectJobMeta so attribute values can't false-match.
+		j.Tags = DetectTags(htmlRe.ReplaceAllString(j.Title+"\n"+j.Description, " "))
+
+		// Strict level filtering: when the caller asks for a specific level,
+		// any JD that detected to a different level is skipped. Unknown is
+		// skipped too unless the caller explicitly opted in via
+		// includeUnknown (scratch: "I want to see unclassified JDs anyway").
+		if level != "" {
+			if strings.EqualFold(j.Level, level) {
+				// exact match — keep
+			} else if strings.EqualFold(j.Level, domain.LevelUnknown) && includeUnknown {
+				// keep
+			} else {
+				continue
+			}
 		}
 		if jobType != "" && j.Type != "" && !strings.EqualFold(j.Type, jobType) {
 			continue
@@ -66,18 +87,12 @@ func (s *JobService) detectJobMeta(title, description string) (level, jobType st
 
 	// Authoritative: an explicit level word wins, years-of-experience is
 	// only consulted when no level word is found anywhere in the text.
-	if m := levelRe.FindString(hay); m != "" {
-		stem := strings.TrimSuffix(strings.ToLower(m), "s")
-		switch stem {
-		case "internship", "intern":
-			level = "Intern"
-		case "junior":
-			level = "Junior"
-		case "senior":
-			level = "Senior"
-		}
-	}
-	if level == "" {
+	// domain.FindLevelWord is the single source of truth for level-word
+	// detection — it returns LevelUnknown when no level word matches, which
+	// we use as the signal to try the years-of-experience and "no experience"
+	// fallbacks below.
+	level = domain.FindLevelWord(plain)
+	if level == domain.LevelUnknown {
 		// Pick the highest year-of-experience mention across the whole text.
 		// JDs commonly list parallel skill requirements (e.g. "1 year React
 		// AND 5 years Node"); the seniority bar is set by the maximum, not
@@ -104,6 +119,9 @@ func (s *JobService) detectJobMeta(title, description string) (level, jobType st
 		} else if noExpRe.MatchString(hay) {
 			level = "Intern"
 		}
+		// else: level stays domain.LevelUnknown — sentinel beats empty
+		// string: a real Level value prevents the fetch filter from silently
+		// treating "unknown" as "matches any level the user asked for".
 	}
 
 	if m := typeRe.FindString(hay); m != "" {

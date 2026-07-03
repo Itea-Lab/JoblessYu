@@ -2,6 +2,7 @@ package bot
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"JoblessYu/internal/domain"
@@ -17,10 +18,24 @@ func buildJobEmbed(job domain.JobEntry, page, total int) *discordgo.MessageEmbed
 		tags += fmt.Sprintf("`%s` ", job.Level)
 	}
 	if job.Type != "" {
-		tags += fmt.Sprintf("`%s`", job.Type)
+		tags += fmt.Sprintf("`%s` ", job.Type)
 	}
-	if tags != "" {
-		desc += fmt.Sprintf("\n• **Tags:** %s", strings.TrimSpace(tags))
+
+	// Append detected skill/tool tags, grouped by category so the embed's
+	// Tags line stays readable (e.g. `Cloud: AWS IAM` `IaC: CloudFormation`).
+	if len(job.Tags) > 0 {
+		categories := make([]string, 0, len(job.Tags))
+		for cat := range job.Tags {
+			categories = append(categories, cat)
+		}
+		sort.Strings(categories)
+		for _, cat := range categories {
+			tags += fmt.Sprintf("`%s: %s` ", cat, strings.Join(job.Tags[cat], " "))
+		}
+	}
+
+	if tags = strings.TrimSpace(tags); tags != "" {
+		desc += fmt.Sprintf("\n• **Tags:** %s", tags)
 	}
 
 	desc += fmt.Sprintf("\n• **Apply:** [Open job](%s)", job.URL)

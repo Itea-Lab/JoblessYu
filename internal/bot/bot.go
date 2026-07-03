@@ -70,6 +70,12 @@ var commands = []*discordgo.ApplicationCommand{
 					{Name: "HN (Ha Noi)", Value: "HN"},
 				},
 			},
+			{
+				Type:        discordgo.ApplicationCommandOptionBoolean,
+				Name:        "include_unknown",
+				Description: "Include jobs whose level could not be detected (default false)",
+				Required:    false,
+			},
 		},
 	},
 }

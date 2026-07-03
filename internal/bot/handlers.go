@@ -118,6 +118,7 @@ func (b *Bot) handleJobsSlash(s *discordgo.Session, i *discordgo.InteractionCrea
 	level := ""
 	jobType := ""
 	location := ""
+	includeUnknown := false
 	for _, opt := range i.ApplicationCommandData().Options {
 		switch opt.Name {
 		case "level":
@@ -126,11 +127,13 @@ func (b *Bot) handleJobsSlash(s *discordgo.Session, i *discordgo.InteractionCrea
 			jobType = opt.StringValue()
 		case "location":
 			location = opt.StringValue()
+		case "include_unknown":
+			includeUnknown = opt.BoolValue()
 		}
 	}
 
 	ctx := context.Background()
-	jobs, err := b.jobService.FetchAndProcessJobs(ctx, level, jobType, location)
+	jobs, err := b.jobService.FetchAndProcessJobs(ctx, level, jobType, location, includeUnknown)
 	if err != nil {
 		content := "❌ Failed to fetch jobs. Please try again later."
 		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
