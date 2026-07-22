@@ -1,6 +1,6 @@
-# JoblessYu Vessel
+# JoblessYu
 
-JoblessYu Vessel is a Discord bot built in Go that scrapes job listings using a Python script and stores the data in a PostgreSQL database.
+JoblessYu is a Discord bot built in Go that scrapes job listings using a Python script and stores the data in a PostgreSQL database.
 
 ## Prerequisites
 
