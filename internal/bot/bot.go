@@ -1,13 +1,13 @@
 package bot
 
 import (
+	"context"
 	"log"
 	"sync"
 	"time"
 
 	"JoblessYu/internal/config"
-	"JoblessYu/internal/domain"
-	"JoblessYu/internal/service"
+	"JoblessYu/internal/job"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -18,14 +18,23 @@ const (
 )
 
 type cachedJobs struct {
-	jobs       []domain.JobEntry
+	jobs       []job.JobEntry
 	insertedAt time.Time
+}
+
+// jobService is the contract Bot needs from the service layer. Defined
+// here (consumer-side) per Go's "accept interfaces" convention; the
+// concrete *service.JobService satisfies it structurally. This seam lets
+// bot handlers be unit-tested with a fake — no real Postgres or extractor
+// needed.
+type jobService interface {
+	FetchAndProcessJobs(ctx context.Context, q job.JobQuery) ([]job.JobEntry, error)
 }
 
 type Bot struct {
 	session    *discordgo.Session
 	cfg        *config.Config
-	jobService *service.JobService
+	jobService jobService
 
 	jobsCache map[string]cachedJobs
 	cacheLock sync.RWMutex
@@ -80,7 +89,7 @@ var commands = []*discordgo.ApplicationCommand{
 	},
 }
 
-func NewBot(cfg *config.Config, jobService *service.JobService) (*Bot, error) {
+func NewBot(cfg *config.Config, jobService jobService) (*Bot, error) {
 	token := "Bot " + cfg.DiscordToken
 	session, err := discordgo.New(token)
 	if err != nil {
@@ -90,8 +99,7 @@ func NewBot(cfg *config.Config, jobService *service.JobService) (*Bot, error) {
 	session.Identify.Intents =
 		discordgo.IntentsGuildMessages |
 			discordgo.IntentsDirectMessages |
-			discordgo.IntentsGuilds |
-			discordgo.IntentsMessageContent
+			discordgo.IntentsGuilds
 
 	bot := &Bot{
 		session:     session,
@@ -100,20 +108,6 @@ func NewBot(cfg *config.Config, jobService *service.JobService) (*Bot, error) {
 		jobsCache:   make(map[string]cachedJobs),
 		stopJanitor: make(chan struct{}),
 	}
-
-	bot.session.AddHandler(func(s *discordgo.Session, m *discordgo.MessageCreate) {
-		if m.Author.Bot {
-			return
-		}
-		if m.Content == "!testembed" {
-			embed := &discordgo.MessageEmbed{
-				Title:       "✅ Embed Test",
-				Description: "If you can see this, embeds are working correctly.",
-				Color:       0x57F287,
-			}
-			s.ChannelMessageSendEmbed(m.ChannelID, embed)
-		}
-	})
 
 	bot.session.AddHandler(bot.handleInteraction)
 

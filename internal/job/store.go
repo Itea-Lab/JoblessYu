@@ -1,12 +1,12 @@
-package repository
+package job
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
-
-	"JoblessYu/internal/domain"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -16,7 +16,7 @@ type JobRepository struct {
 }
 
 // levelWordPatterns, levelYearPatterns and levelNoExpPatterns are DERIVED from
-// internal/domain.LevelRules — the single source of truth for level
+// internal/LevelRules — the single source of truth for level
 // detection. Do not edit them here; add/modify a LevelRule in domain
 // instead. Postgres uses \m...\M (start/end-of-word) boundaries which
 // behave equivalently to Go's (?i)\b...\b for the ASCII-only word
@@ -24,15 +24,15 @@ type JobRepository struct {
 // in both engines' regexes.
 var (
 	levelWordPatterns = func() map[string]string {
-		out := make(map[string]string, len(domain.LevelRules))
-		for _, r := range domain.LevelRules {
+		out := make(map[string]string, len(LevelRules))
+		for _, r := range LevelRules {
 			out[r.Name] = `\m(?:` + r.WordPattern + `)\M`
 		}
 		return out
 	}()
 	levelYearPatterns = func() map[string]string {
-		out := make(map[string]string, len(domain.LevelRules))
-		for _, r := range domain.LevelRules {
+		out := make(map[string]string, len(LevelRules))
+		for _, r := range LevelRules {
 			if r.YearPattern != "" {
 				out[r.Name] = r.YearPattern
 			}
@@ -41,7 +41,7 @@ var (
 	}()
 	levelNoExpPatterns = func() map[string]string {
 		out := make(map[string]string)
-		for _, r := range domain.LevelRules {
+		for _, r := range LevelRules {
 			if r.NoExpPattern != "" {
 				out[r.Name] = `\m(?:` + r.NoExpPattern + `)\M`
 			}
@@ -71,7 +71,7 @@ func (r *JobRepository) Close() {
 // FetchRawJobs fetches jobs from DB before markdown conversion and detailed
 // filtering.
 //
-// When level is set and includeUnknown is false (the default), the SQL
+// When q.Level is set and q.IncludeUnknown is false (the default), the SQL
 // WHERE clause restricts rows to those already carrying the requested level
 // signal: the level word (in title or description), the years-of-experience
 // regex (description), or the no-experience-phrase regex (title or
@@ -79,27 +79,30 @@ func (r *JobRepository) Close() {
 // classify-then-strict-filter sees a pre-filtered set that mirrors its own
 // detection logic — no DB↔service drift.
 //
-// When includeUnknown is true AND a level is requested, the level predicate
+// When q.IncludeUnknown is true AND a level is requested, the level predicate
 // is omitted entirely from SQL — fetch is widened to all rows matching the
 // other filters, and the service-layer strict filter then classifies each
 // row, keeping the requested level OR Unknown rows. This preserves the
 // include_unknown contract for rows the DB-side regex can't recognize as
 // the requested level but which detectJobMeta would still flag Unknown.
 //
-// includeUnknown has no effect when level is empty.
-func (r *JobRepository) FetchRawJobs(ctx context.Context, level, jobType, location string, includeUnknown bool) ([]domain.JobEntry, error) {
+// q.IncludeUnknown has no effect when q.Level is empty.
+// q.Limit defaults to 20 when zero or negative.
+func (r *JobRepository) FetchRawJobs(ctx context.Context, q JobQuery) ([]JobEntry, error) {
 	args := []interface{}{}
 	argIdx := 1
-	query := `SELECT COALESCE(title, ''), COALESCE(company, ''), COALESCE(location, ''), job_url, COALESCE(job_type, ''), COALESCE(description, '') FROM jobs`
+	query := `SELECT id, COALESCE(title, ''), COALESCE(company, ''), COALESCE(location, ''), job_url, COALESCE(NULLIF(job_type_normalized, ''), COALESCE(job_type, '')), COALESCE(description, ''), COALESCE(level, ''), ai_processed_at, COALESCE(tags, '{}'::jsonb), COALESCE(summary, ''), COALESCE(salary, ''), COALESCE(remote, false), COALESCE(ai_model, '') FROM jobs`
 
 	var conditions []string
-	if level != "" && !includeUnknown {
+	if q.Level != "" && !q.IncludeUnknown && !q.AIEnabled {
 		// Apply the DB-side level predicate only when the caller wants the
-		// strict (narrow) path. When includeUnknown is set, drop the
-		// predicate so unclassified rows reach service-layer classification.
-		wordPat := levelWordPatterns[level]
-		yearPat, hasYearPat := levelYearPatterns[level]
-		noExpPat, hasNoExpPat := levelNoExpPatterns[level]
+		// strict (narrow) path AND AI is not enabled. When includeUnknown is
+		// set, drop the predicate so unclassified rows reach service-layer
+		// classification. When AI is enabled, also drop the predicate — fetch
+		// wider so the AI extractor can classify rows the regex would miss.
+		wordPat := levelWordPatterns[q.Level]
+		yearPat, hasYearPat := levelYearPatterns[q.Level]
+		noExpPat, hasNoExpPat := levelNoExpPatterns[q.Level]
 
 		var levelConds []string
 		if wordPat != "" {
@@ -131,12 +134,12 @@ func (r *JobRepository) FetchRawJobs(ctx context.Context, level, jobType, locati
 			conditions = append(conditions, "("+strings.Join(levelConds, " OR ")+")")
 		}
 	}
-	if jobType != "" {
+	if q.JobType != "" {
 		conditions = append(conditions, fmt.Sprintf(`(job_type ILIKE $%d OR description ILIKE $%d)`, argIdx, argIdx+1))
-		args = append(args, "%"+jobType+"%", "%"+jobType+"%")
+		args = append(args, "%"+q.JobType+"%", "%"+q.JobType+"%")
 		argIdx += 2
 	}
-	switch location {
+	switch q.Location {
 	case "HCM":
 		conditions = append(conditions, fmt.Sprintf(`(location ILIKE $%d OR location ILIKE $%d)`, argIdx, argIdx+1))
 		args = append(args, "%HCM%", "%Ho Chi Minh%")
@@ -151,7 +154,11 @@ func (r *JobRepository) FetchRawJobs(ctx context.Context, level, jobType, locati
 		query += ` WHERE ` + strings.Join(conditions, " AND ")
 	}
 
-	query += ` ORDER BY fetched_at DESC LIMIT 20`
+	limit := q.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	query += fmt.Sprintf(` ORDER BY fetched_at DESC LIMIT %d`, limit)
 
 	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -159,23 +166,76 @@ func (r *JobRepository) FetchRawJobs(ctx context.Context, level, jobType, locati
 	}
 	defer rows.Close()
 
-	var jobs []domain.JobEntry
+	var jobs []JobEntry
 	for rows.Next() {
-		var title, company, loc, url, jobTypeDB, description string
-		if err := rows.Scan(&title, &company, &loc, &url, &jobTypeDB, &description); err != nil {
+		var id int64
+		var title, company, loc, url, jobTypeDB, description, level, summary, salary, aiModel string
+		var remote bool
+		var aiProcessedAt sql.NullTime
+		var tagsJSON []byte
+		if err := rows.Scan(&id, &title, &company, &loc, &url, &jobTypeDB, &description, &level, &aiProcessedAt, &tagsJSON, &summary, &salary, &remote, &aiModel); err != nil {
 			log.Printf("job repository: scan error (skipping row): %v", err)
 			continue
 		}
 
-		jobs = append(jobs, domain.JobEntry{
+		var tags map[string][]string
+		if len(tagsJSON) > 0 {
+			if err := json.Unmarshal(tagsJSON, &tags); err != nil {
+				log.Printf("job repository: tags parse error (job %d): %v", id, err)
+			}
+		}
+
+		entry := JobEntry{
+			ID:          id,
 			Title:       title,
 			Company:     company,
 			Location:    loc,
 			URL:         url,
 			Description: description,
 			Type:        jobTypeDB,
-		})
+			Level:       level,
+			AIProcessed: aiProcessedAt.Valid,
+			Summary:     summary,
+			Salary:      salary,
+			Remote:      remote,
+			AIModel:     aiModel,
+			Tags:        tags,
+		}
+		if aiProcessedAt.Valid {
+			entry.AIProcessedAt = aiProcessedAt.Time
+		}
+		jobs = append(jobs, entry)
 	}
 
 	return jobs, rows.Err()
+}
+
+// MarkAIProcessed writes AI extraction results back to the jobs row so
+// subsequent /jobs queries skip re-extraction (lazy enrichment). The
+// meta.Model field identifies which extractor produced the result (e.g.
+// "regex", "qwen/qwen3.6-27b") and is stored in ai_model for audit.
+func (r *JobRepository) MarkAIProcessed(ctx context.Context, jobID int64, meta JobMeta) error {
+	tags := meta.Tags
+	if tags == nil {
+		tags = map[string][]string{}
+	}
+	tagsJSON, err := json.Marshal(tags)
+	if err != nil {
+		return fmt.Errorf("marshal tags: %w", err)
+	}
+
+	_, err = r.pool.Exec(ctx,
+		`UPDATE jobs
+		 SET level               = $1,
+		     job_type_normalized = $2,
+		     tags                = $3,
+		     summary             = $4,
+		     salary              = $5,
+		     remote              = $6,
+		     ai_processed_at     = NOW(),
+		     ai_model            = $7
+		 WHERE id = $8`,
+		meta.Level, meta.Type, tagsJSON, meta.Summary, meta.Salary, meta.Remote, meta.Model, jobID,
+	)
+	return err
 }

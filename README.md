@@ -18,8 +18,9 @@ Create a `.env` file in the root directory of the project and add the following 
 
 ```env
 DISCORD_BOT_TOKEN=your_discord_bot_token
-DISCORD_CHANNEL_ID=your_discord_channel_id
+DISCORD_GUILD_ID=your_discord_guild_id
 DATABASE_URL=your_postgresql_connection_string
+GROQ_API_KEY=your_groq_api_key
 ```
 
 ### 2. Install Go dependencies
@@ -37,17 +38,17 @@ The python scraper requires a few packages. It is recommended to use a virtual e
 **Mac / Linux:**
 
 ```bash
-python3 -m venv Python-Jobspy/.venv
-source Python-Jobspy/.venv/bin/activate
-pip install python-jobspy python-dotenv pandas "psycopg[binary]"
+python3 -m venv scraper-python/.venv
+source scraper-python/.venv/bin/activate
+pip install -r scraper-python/requirements.txt
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-python -m venv Python-Jobspy\.venv
-.\Python-Jobspy\.venv\Scripts\Activate.ps1
-pip install python-jobspy python-dotenv pandas "psycopg[binary]"
+python -m venv scraper-python\.venv
+.\scraper-python\.venv\Scripts\Activate.ps1
+pip install -r scraper-python\requirements.txt
 ```
 
 ### 4. Running the application
@@ -61,6 +62,6 @@ go run cmd/bot/main.go
 ### 5. How it works
 
 - **Initialization:** The Go application initializes the Discord bot and connects to your PostgreSQL database.
-- **Scraping schedule:** A background job scheduler is started, which automatically runs the Python scraper (`Python-Jobspy/JoblessYu.py`) every 6 hours.
-- **Python scraper:** The script scrapes "IT Support" jobs (from Indeed and LinkedIn), saves them to a local `jobs.json` file, and upserts the records into your database.
+- **Scraping schedule:** A background job scheduler is started, which automatically runs the Python scraper (`scraper-python/JoblessYu.py`) every 6 hours.
+- **Python scraper:** The script scrapes "IT Support" jobs (from Indeed and LinkedIn) and upserts the records into your database.
 - **Graceful shutdown:** You can stop the application safely at any time by pressing `CTRL+C` in your terminal.

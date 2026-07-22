@@ -89,26 +89,35 @@ def save_jobs_to_neon(jobs_df):
 def JobScan():
     print("JoblessYu is looking for jobs =w=")
 
+    # Env-driven scraper params (defaults match pre-Slice-C hardcoded values).
+    search_term = os.getenv("SEARCH_TERM", "IT Support")
+    search_location = os.getenv("SEARCH_LOCATION", "vietnam")
+    results_wanted = int(os.getenv("RESULTS_WANTED", "20"))
+    hours_old = int(os.getenv("HOURS_OLD", str(24 * 7)))
+    sites = [s.strip() for s in os.getenv("SITES", "indeed,linkedin").split(",")]
+    country_indeed = os.getenv("COUNTRY_INDEED", "vietnam")
+
+    print(f"  search_term={search_term!r} location={search_location!r} sites={sites} results={results_wanted}", flush=True)
+
     # Scrape jobs using JobSpy.
     jobs = scrape_jobs(
-        site_name=["indeed", "linkedin"],
-        search_term="IT Support",
-        location="vietnam",
-        results_wanted=20,
-        hours_old=24*7,
-        country_indeed='vietnam',
+        site_name=sites,
+        search_term=search_term,
+        location=search_location,
+        results_wanted=results_wanted,
+        hours_old=hours_old,
+        country_indeed=country_indeed,
     )
 
     if jobs.empty:
         print("There are no jobs at the moment :c")
         return
 
-    # Pandas DataFrame to JSON
+    # Pandas DataFrame to DB columns
     available_filters = ["id", "site", "job_url", "title",
                          "company", "location", "job_type", "description"]
     jobs = jobs[available_filters]
-    jobs.to_json("jobs.json", orient="records", indent=4, force_ascii=False)
-    print(f"{len(jobs)} jobs saved to jobs.json =w=")
+    print(f"{len(jobs)} jobs ready to upsert.")
     save_jobs_to_neon(jobs)
 
 

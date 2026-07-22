@@ -1,0 +1,52 @@
+# Build artifacts
+bot
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Environment & secrets
+.env
+.env.*
+*.env
+neoenv.txt
+Note.md
+GroqImplement.md
+
+# Docs and metadata
+docs/
+README.md
+CONTRIBUTING.md
+
+# Python venv and cache
+scraper-python/.venv/
+**/__pycache__/
+*.py[cod]
+
+# Docker
+Dockerfile
+.dockerignore
+
+# CI
+.github/
+
+# Misc
+jobs.json
+Makefile
+backup.sql

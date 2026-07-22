@@ -6,6 +6,8 @@ import (
 	"log"
 	"time"
 
+	"JoblessYu/internal/job"
+
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -57,7 +59,7 @@ func (b *Bot) handleInteraction(s *discordgo.Session, i *discordgo.InteractionCr
 	}
 
 	page := 1
-	if i.Message.Embeds != nil && len(i.Message.Embeds) > 0 && i.Message.Embeds[0].Footer != nil {
+	if len(i.Message.Embeds) > 0 && i.Message.Embeds[0].Footer != nil {
 		fmt.Sscanf(i.Message.Embeds[0].Footer.Text, "Page %d", &page)
 		if page < 1 {
 			page = 1
@@ -133,7 +135,14 @@ func (b *Bot) handleJobsSlash(s *discordgo.Session, i *discordgo.InteractionCrea
 	}
 
 	ctx := context.Background()
-	jobs, err := b.jobService.FetchAndProcessJobs(ctx, level, jobType, location, includeUnknown)
+	q := job.JobQuery{
+		Level:          level,
+		JobType:        jobType,
+		Location:       location,
+		IncludeUnknown: includeUnknown,
+		AIEnabled:      b.cfg.GroqAPIKey != "",
+	}
+	jobs, err := b.jobService.FetchAndProcessJobs(ctx, q)
 	if err != nil {
 		content := "❌ Failed to fetch jobs. Please try again later."
 		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{

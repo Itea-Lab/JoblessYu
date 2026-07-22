@@ -35,17 +35,17 @@ func NewScraperManager() *ScraperManager {
 	return m
 }
 
-// resolveScriptPath locates Python-Jobspy/JoblessYu.py by walking up from the
+// resolveScriptPath locates scraper-python/JoblessYu.py by walking up from the
 // current working directory until a go.mod is found, then joining the relative
 // script path. Falls back to the relative path if no repo root is found.
 func (m *ScraperManager) resolveScriptPath() string {
 	dir, err := os.Getwd()
 	if err != nil {
-		return filepath.Join("Python-Jobspy", "JoblessYu.py")
+		return filepath.Join("scraper-python", "JoblessYu.py")
 	}
 	for {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return filepath.Join(dir, "Python-Jobspy", "JoblessYu.py")
+			return filepath.Join(dir, "scraper-python", "JoblessYu.py")
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
@@ -53,7 +53,7 @@ func (m *ScraperManager) resolveScriptPath() string {
 		}
 		dir = parent
 	}
-	return filepath.Join("Python-Jobspy", "JoblessYu.py")
+	return filepath.Join("scraper-python", "JoblessYu.py")
 }
 
 // resolvePythonExe picks the first available Python interpreter on PATH.
@@ -68,7 +68,8 @@ func (m *ScraperManager) resolvePythonExe() string {
 }
 
 func (m *ScraperManager) StartSchedule() {
-	_, err := m.cron.AddFunc("@every 6h", func() {
+	// Weekly: Monday 09:00 ICT = 02:00 UTC (ICT = UTC+7).
+	_, err := m.cron.AddFunc("0 2 * * 1", func() {
 		m.runWithLock(m.ctx)
 	})
 	if err != nil {
@@ -76,22 +77,26 @@ func (m *ScraperManager) StartSchedule() {
 		return
 	}
 
-	log.Printf("Job scraper scheduled to run every 6 hours (using %s).", m.pythonExe)
+	log.Printf("Job scraper scheduled weekly (Mon 09:00 ICT) using %s.", m.pythonExe)
 	m.cron.Start()
 
-	// Run once initially in background.
-	go m.runWithLock(m.ctx)
+	// No startup scrape — the bot restarts should not trigger an unintended
+	// scrape. The weekly cron is the only automatic trigger. To run a
+	// manual scrape, use: make scrape
 }
 
-// StopSchedule cancels any in-flight scrape and blocks until all scheduled and
-// initial runs have fully drained.
+// StopSchedule cancels any in-flight scrape and blocks until all scheduled
+// runs have fully drained.
 func (m *ScraperManager) StopSchedule() {
 	stopCtx := m.cron.Stop()
 	m.cancel()
 	<-stopCtx.Done()
 
-	// Wait for any run launched outside the cron (the initial goroutine).
+	// Wait for any in-flight run to finish by acquiring the lock.
+	// The empty critical section is intentional — we just need to block
+	// until runMu is released by an in-flight runWithLock.
 	m.runMu.Lock()
+	//lint:ignore SA2001 intentional empty critical section — waits for in-flight run
 	m.runMu.Unlock()
 }
 

@@ -92,6 +92,7 @@ celerybeat.pid
 
 # Environments
 .env
+.env.*
 *.env
 .venv
 env/
@@ -144,8 +145,15 @@ jobs.json
 skills-lock.json
 .agents
 
-# Documentation notes
+# Documentation notes (local only)
 Note.md
+GroqImplement.md
+
+# Neon credentials (local only)
+neoenv.txt
+
+# AI docs — progress log, structure, changelog (local context backup)
+docs/AI/
 
 # --- Go ---
 # Binaries for programs and plugins
@@ -167,3 +175,7 @@ Note.md
 # Go workspace file
 go.work
 go.work.sum
+
+# Build artifacts
+/bot
+backup.sql
