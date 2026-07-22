@@ -1,0 +1,25 @@
+# Normalize line endings to LF for cross-platform consistency (Windows/Mac/Linux).
+# Git will auto-convert CRLF -> LF on commit and LF -> CRLF on checkout for Windows.
+* text=auto eol=lf
+
+# Explicitly enforce LF for source files that are sensitive to line endings.
+*.go   text eol=lf
+*.py   text eol=lf
+*.md   text eol=lf
+*.json text eol=lf
+*.sum  text eol=lf
+*.mod  text eol=lf
+*.env  text eol=lf
+
+# Binary files — never normalize line endings.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.zip  binary
+*.db   binary
+*.dylib binary
+*.so   binary
+*.exe  binary
