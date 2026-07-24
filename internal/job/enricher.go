@@ -105,7 +105,7 @@ func (e *BatchEnricher) Run(ctx context.Context) error {
 		}
 
 		enriched++
-		slog.Debug("enricher: job enriched",
+		slog.Info("enricher: job enriched",
 			"job_id", j.ID, "title", j.Title, "level", meta.Level,
 			"expertise", meta.Expertise,
 			"progress", fmt.Sprintf("%d/%d", i+1, len(jobs)))

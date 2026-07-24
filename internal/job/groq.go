@@ -193,10 +193,38 @@ func (g *GroqExtractor) callGroq(ctx context.Context, systemMsg, userMsg, title,
 		return JobMeta{}, &jsonParseError{err: fmt.Errorf("no JSON object found in response (content: %s)", truncate(content, 200))}
 	}
 
-	var meta JobMeta
-	if err := json.Unmarshal([]byte(jsonStr), &meta); err != nil {
-		// JSON parse error — wrap as jsonParseError so Extract() retries.
+	// Unmarshal into a raw struct first — the AI sometimes returns "remote"
+	// as a string ("true"/"false") instead of a boolean (true/false), which
+	// causes json.Unmarshal to fail on the JobMeta struct. Using interface{}
+	// accepts both types, then we convert manually.
+	var raw struct {
+		Level     string              `json:"level"`
+		Type      string              `json:"type"`
+		Expertise string              `json:"expertise"`
+		Tags      map[string][]string `json:"tags"`
+		Salary    string              `json:"salary"`
+		Remote    interface{}         `json:"remote"`
+		Summary   string              `json:"summary"`
+	}
+	if err := json.Unmarshal([]byte(jsonStr), &raw); err != nil {
 		return JobMeta{}, &jsonParseError{err: fmt.Errorf("parse groq JSON: %w (content: %s)", err, truncate(jsonStr, 200))}
+	}
+
+	// Build JobMeta from the raw struct, converting Remote from interface{} to bool.
+	var meta JobMeta
+	meta.Level = raw.Level
+	meta.Type = raw.Type
+	meta.Expertise = raw.Expertise
+	meta.Tags = raw.Tags
+	meta.Salary = raw.Salary
+	meta.Summary = raw.Summary
+	switch v := raw.Remote.(type) {
+	case bool:
+		meta.Remote = v
+	case string:
+		meta.Remote = strings.EqualFold(v, "true")
+	default:
+		meta.Remote = false
 	}
 
 	// Validate required fields. Without response_format constraints, the
