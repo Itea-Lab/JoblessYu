@@ -22,6 +22,17 @@ type cachedJobs struct {
 	insertedAt time.Time
 }
 
+type criteriaState struct {
+	PositionTitle string
+	LevelValue    string
+	LocationValue string
+}
+
+type cachedCriteria struct {
+	state      criteriaState
+	insertedAt time.Time
+}
+
 // jobService is the contract Bot needs from the service layer. Defined
 // here (consumer-side) per Go's "accept interfaces" convention; the
 // concrete *service.JobService satisfies it structurally. This seam lets
@@ -37,6 +48,7 @@ type Bot struct {
 	jobService jobService
 
 	jobsCache map[string]cachedJobs
+	uiState   map[string]cachedCriteria
 	cacheLock sync.RWMutex
 
 	stopJanitor chan struct{}
@@ -45,47 +57,7 @@ type Bot struct {
 var commands = []*discordgo.ApplicationCommand{
 	{
 		Name:        "jobs",
-		Description: "Browse IT Support jobs with pagination",
-		Options: []*discordgo.ApplicationCommandOption{
-			{
-				Type:        discordgo.ApplicationCommandOptionString,
-				Name:        "level",
-				Description: "Job experience level (optional)",
-				Required:    false,
-				Choices: []*discordgo.ApplicationCommandOptionChoice{
-					{Name: "Intern", Value: "Intern"},
-					{Name: "Fresher", Value: "Fresher"},
-					{Name: "Junior", Value: "Junior"},
-					{Name: "Senior", Value: "Senior"},
-				},
-			},
-			{
-				Type:        discordgo.ApplicationCommandOptionString,
-				Name:        "type",
-				Description: "Job type (optional)",
-				Required:    false,
-				Choices: []*discordgo.ApplicationCommandOptionChoice{
-					{Name: "Fulltime", Value: "Fulltime"},
-					{Name: "Parttime", Value: "Parttime"},
-				},
-			},
-			{
-				Type:        discordgo.ApplicationCommandOptionString,
-				Name:        "location",
-				Description: "Job location (optional)",
-				Required:    false,
-				Choices: []*discordgo.ApplicationCommandOptionChoice{
-					{Name: "HCM (Ho Chi Minh)", Value: "HCM"},
-					{Name: "HN (Ha Noi)", Value: "HN"},
-				},
-			},
-			{
-				Type:        discordgo.ApplicationCommandOptionBoolean,
-				Name:        "include_unknown",
-				Description: "Include jobs whose level could not be detected (default false)",
-				Required:    false,
-			},
-		},
+		Description: "Open interactive job filters and browse results",
 	},
 }
 
@@ -106,6 +78,7 @@ func NewBot(cfg *config.Config, jobService jobService) (*Bot, error) {
 		cfg:         cfg,
 		jobService:  jobService,
 		jobsCache:   make(map[string]cachedJobs),
+		uiState:     make(map[string]cachedCriteria),
 		stopJanitor: make(chan struct{}),
 	}
 
@@ -139,6 +112,11 @@ func (b *Bot) evictExpired() {
 	for id, c := range b.jobsCache {
 		if now.Sub(c.insertedAt) > jobsCacheTTL {
 			delete(b.jobsCache, id)
+		}
+	}
+	for id, c := range b.uiState {
+		if now.Sub(c.insertedAt) > jobsCacheTTL {
+			delete(b.uiState, id)
 		}
 	}
 }
