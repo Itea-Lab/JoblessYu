@@ -24,17 +24,17 @@ func buildJobSweeperEmbed(state criteriaState, notice string) *discordgo.Message
 
 	fields := []*discordgo.MessageEmbedField{
 		{
-			Name:   "🎯 Position",
+			Name:   "Position",
 			Value:  fmt.Sprintf("**%s**", state.PositionTitle),
 			Inline: false,
 		},
 		{
-			Name:   "📈 Experience",
+			Name:   "Experience",
 			Value:  fmt.Sprintf("**%s**", levelLabel),
 			Inline: true,
 		},
 		{
-			Name:   "📍 Location",
+			Name:   "Location",
 			Value:  fmt.Sprintf("**%s**", locationLabel),
 			Inline: true,
 		},
@@ -42,14 +42,14 @@ func buildJobSweeperEmbed(state criteriaState, notice string) *discordgo.Message
 
 	if notice != "" {
 		fields = append(fields, &discordgo.MessageEmbedField{
-			Name:   "⚠️ Status",
+			Name:   "Status",
 			Value:  notice,
 			Inline: false,
 		})
 	}
 
 	return &discordgo.MessageEmbed{
-		Title:       "🔍 Job Sweeper Criteria",
+		Title:       "Job Sweeper Criteria",
 		Description: "**Review your filters, then launch a search.**",
 		Color:       0x5865F2,
 		Fields:      fields,
