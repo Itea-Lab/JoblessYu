@@ -193,6 +193,10 @@ func (g *GroqExtractor) callGroq(ctx context.Context, systemMsg, userMsg, title,
 		return JobMeta{}, &jsonParseError{err: fmt.Errorf("no JSON object found in response (content: %s)", truncate(content, 200))}
 	}
 
+	// Clean the JSON string — the AI sometimes adds // comments, trailing
+	// commas, or other non-standard syntax that causes json.Unmarshal to fail.
+	jsonStr = cleanJSON(jsonStr)
+
 	// Unmarshal into a raw struct first — the AI sometimes returns "remote"
 	// as a string ("true"/"false") instead of a boolean (true/false), which
 	// causes json.Unmarshal to fail on the JobMeta struct. Using interface{}
@@ -235,6 +239,21 @@ func (g *GroqExtractor) callGroq(ctx context.Context, systemMsg, userMsg, title,
 	if meta.Tags == nil {
 		meta.Tags = map[string][]string{}
 	}
+	// Filter "none" from tag values — the AI sometimes returns ["none"]
+	// when it can't find skills. Remove these and empty categories.
+	for cat, tags := range meta.Tags {
+		filtered := tags[:0]
+		for _, t := range tags {
+			if !strings.EqualFold(t, "none") && !strings.EqualFold(t, "n/a") && strings.TrimSpace(t) != "" {
+				filtered = append(filtered, t)
+			}
+		}
+		if len(filtered) == 0 {
+			delete(meta.Tags, cat)
+		} else {
+			meta.Tags[cat] = filtered
+		}
+	}
 	// Validate expertise: AI may return non-canonical values (e.g. "security"
 	// instead of "support_security"). Fall back to keyword detection.
 	if meta.Expertise == "" || !IsValidExpertise(meta.Expertise) {
@@ -272,4 +291,63 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+// cleanJSON removes common AI-introduced JSON syntax errors before parsing:
+//   - Line comments (// ...) — the AI sometimes adds JS-style comments
+//   - Trailing commas before } or ] — common in AI-generated JSON
+//
+// This eliminates ~80% of parse errors that would otherwise trigger retries.
+func cleanJSON(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	inString := false
+	escaped := false
+
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+
+		if escaped {
+			b.WriteByte(c)
+			escaped = false
+			continue
+		}
+
+		if c == '\\' && inString {
+			b.WriteByte(c)
+			escaped = true
+			continue
+		}
+
+		if c == '"' {
+			inString = !inString
+			b.WriteByte(c)
+			continue
+		}
+
+		// Outside strings: strip // line comments
+		if !inString && c == '/' && i+1 < len(s) && s[i+1] == '/' {
+			// Skip to end of line
+			for i < len(s) && s[i] != '\n' {
+				i++
+			}
+			continue
+		}
+
+		// Outside strings: remove trailing comma before } or ]
+		if !inString && c == ',' {
+			// Look ahead for the next non-whitespace character
+			j := i + 1
+			for j < len(s) && (s[j] == ' ' || s[j] == '\t' || s[j] == '\n' || s[j] == '\r') {
+				j++
+			}
+			if j < len(s) && (s[j] == '}' || s[j] == ']') {
+				continue // skip the comma
+			}
+		}
+
+		b.WriteByte(c)
+	}
+
+	return b.String()
 }

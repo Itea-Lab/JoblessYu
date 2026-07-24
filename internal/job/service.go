@@ -29,7 +29,7 @@ func (s *JobService) FetchAndProcessJobs(ctx context.Context, q JobQuery) ([]Job
 		return nil, err
 	}
 
-	var filtered []JobEntry
+	var filtered = make([]JobEntry, 0, len(rawJobs))
 	for _, j := range rawJobs {
 		// Strict level filtering: when the caller asks for a specific level,
 		// any JD that detected to a different level is skipped. Unknown is

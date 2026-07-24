@@ -90,6 +90,9 @@ descriptors below help when the JD uses local job titles.
 - "argocd" or "argo cd" → "ArgoCD"
 
 ## Output rules
+- Return pure JSON only — no `//` comments, no markdown fences, no trailing text
+- Never use "none" or "n/a" as a tag value — use empty array `[]` or omit the category entirely
+- Never duplicate tag category keys — each category appears at most once
 - Within a category, each canonical tag appears at most once
 - Summary: max 200 chars, neutral tone, no marketing language, in the same language as the JD (Vietnamese JD → Vietnamese summary is fine)
 - Salary: raw string if explicitly mentioned (e.g. "$1500-2000/month" or "15-25 triệu"), else empty string
