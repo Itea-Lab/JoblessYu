@@ -41,8 +41,6 @@ def save_jobs_to_neon(jobs_df):
     );
     """
 
-    alter_table_sql = "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS description TEXT;"
-
     insert_sql = """
     INSERT INTO jobs (job_id, site, job_url, title, company, location, job_type, description)
     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
@@ -54,7 +52,25 @@ def save_jobs_to_neon(jobs_df):
         location = EXCLUDED.location,
         job_type = EXCLUDED.job_type,
         description = EXCLUDED.description,
-        fetched_at = NOW();
+        fetched_at = NOW(),
+        ai_processed_at = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
+                                THEN NULL ELSE jobs.ai_processed_at END,
+        level = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
+                     THEN NULL ELSE jobs.level END,
+        job_type_normalized = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
+                                   THEN NULL ELSE jobs.job_type_normalized END,
+        tags = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
+                    THEN '{}'::jsonb ELSE jobs.tags END,
+        summary = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
+                       THEN NULL ELSE jobs.summary END,
+        salary = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
+                      THEN NULL ELSE jobs.salary END,
+        remote = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
+                      THEN NULL ELSE jobs.remote END,
+        ai_model = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
+                        THEN NULL ELSE jobs.ai_model END,
+        expertise = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
+                         THEN NULL ELSE jobs.expertise END;
     """
 
     rows = [
@@ -77,47 +93,36 @@ def save_jobs_to_neon(jobs_df):
             print("Connected to NeonDB. Creating table...", flush=True)
             with conn.cursor() as cur:
                 cur.execute(create_table_sql)
-                cur.execute(alter_table_sql)
-                print("Table created. Saving data...", flush=True)
+                print("Table ready. Saving data...", flush=True)
                 cur.executemany(insert_sql, rows)
             conn.commit()
         print(f"{len(rows)} jobs upserted to Neon.", flush=True)
     except Exception as e:
         print("Error connecting to NeonDB:", e, flush=True)
+        raise
 
 
 def JobScan():
     print("JoblessYu is looking for jobs =w=")
 
-    # Env-driven scraper params (defaults match pre-Slice-C hardcoded values).
-    search_term = os.getenv("SEARCH_TERM", "IT Support")
-    search_location = os.getenv("SEARCH_LOCATION", "vietnam")
-    results_wanted = int(os.getenv("RESULTS_WANTED", "20"))
-    hours_old = int(os.getenv("HOURS_OLD", str(24 * 7)))
-    sites = [s.strip() for s in os.getenv("SITES", "indeed,linkedin").split(",")]
-    country_indeed = os.getenv("COUNTRY_INDEED", "vietnam")
-
-    print(f"  search_term={search_term!r} location={search_location!r} sites={sites} results={results_wanted}", flush=True)
-
-    # Scrape jobs using JobSpy.
+    # Scrape jobs using JobSpy — daily, 20 per site (20 Indeed + 20 LinkedIn).
     jobs = scrape_jobs(
-        site_name=sites,
-        search_term=search_term,
-        location=search_location,
-        results_wanted=results_wanted,
-        hours_old=hours_old,
-        country_indeed=country_indeed,
+        site_name=["indeed", "linkedin"],
+        search_term="IT",
+        location="vietnam",
+        results_wanted=20,
+        hours_old=24,
+        country_indeed='vietnam',
     )
 
     if jobs.empty:
         print("There are no jobs at the moment :c")
         return
 
-    # Pandas DataFrame to DB columns
+    # Pandas DataFrame to JSON
     available_filters = ["id", "site", "job_url", "title",
                          "company", "location", "job_type", "description"]
     jobs = jobs[available_filters]
-    print(f"{len(jobs)} jobs ready to upsert.")
     save_jobs_to_neon(jobs)
 
 

@@ -1,20 +1,17 @@
 package job
 
-import (
-	"context"
-
-)
+import "context"
 
 // Extractor is the contract for turning a raw job title + description into
-// structured metadata (level, type, tags, salary, remote, summary).
+// structured metadata (level, type, expertise, tags, salary, remote, summary).
 //
 // Implementations:
-//   - RegexExtractor (fallback.go) — always succeeds, no external deps
-//   - GroqExtractor (groq.go, Slice D) — calls Groq API, may fail
+//   - GroqExtractor (groq.go) — calls Groq API, may fail
+//   - RegexExtractor (regex.go) — always succeeds, no external deps
 //
-// The service layer calls Extract on every fetched job. When the primary
-// extractor (Groq, Slice D) fails, it falls back to RegexExtractor so the
-// bot always returns results even during an AI outage.
+// The BatchEnricher calls GroqExtractor as the primary extractor. When Groq
+// is completely unavailable (all retries exhausted on 429/network errors),
+// it falls back to RegexExtractor so jobs remain visible during AI outages.
 type Extractor interface {
 	Extract(ctx context.Context, title, description string) (JobMeta, error)
 }

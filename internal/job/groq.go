@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/sashabaranov/go-openai"
@@ -17,17 +18,19 @@ import (
 var skillsPrompt string
 
 // Groq free tier limits (as of 2026-07):
-//   30 RPM      — requests per minute
-//   8,000 TPM   — tokens per minute
-//   1,000 RPD   — requests per day
-//   200,000 TPD — tokens per day
+//
+//	30 RPM      — requests per minute
+//	8,000 TPM   — tokens per minute
+//	1,000 RPD   — requests per day
+//	200,000 TPD — tokens per day
 //
 // Actual tokens per call (measured against real JDs):
-//   skills.md system prompt: ~706 tokens
-//   schema.go description:  ~249 tokens
-//   JD user message (truncated to 1,500 chars): ~375 tokens
-//   JSON output:             ~200 tokens
-//   TOTAL:                   ~1,530 tokens/call
+//
+//	skills.md system prompt: ~706 tokens
+//	schema.go description:  ~249 tokens
+//	JD user message (truncated to 1,500 chars): ~375 tokens
+//	JSON output:             ~200 tokens
+//	TOTAL:                   ~1,530 tokens/call
 //
 // 18s throttle = 3.3 calls/min × 1,530 = ~5,050 tokens/min (63% of 8K TPM).
 // This leaves comfortable headroom for occasional long JDs and avoids
@@ -41,7 +44,7 @@ var skillsPrompt string
 const (
 	groqBaseURL     = "https://api.groq.com/openai/v1"
 	groqThrottle    = 18 * time.Second
-	groqMaxRetries  = 1  // retry once on JSON parse failure, then fall back
+	groqMaxRetries  = 1 // retry once on JSON parse failure, then fall back
 	groqMaxTokens   = 800
 	groqMaxJDChars  = 1500 // truncate JDs to this many chars before sending
 	groqMinJDLength = 50   // skip Groq for JDs shorter than this
@@ -64,11 +67,13 @@ func (e *jsonParseError) Unwrap() error { return e.err }
 // JDs are truncated to 1,500 chars to stay within Groq's free-tier TPM limit.
 //
 // On JSON parse failure, it retries once. On API/network failure, it
-// returns immediately so ChainExtractor can fall back to RegexExtractor.
+// returns immediately so the BatchEnricher can fall back to RegexExtractor.
 type GroqExtractor struct {
-	client *openai.Client
-	model  string
-	ticker *time.Ticker // rate-limiter; stopped via Close()
+	client    *openai.Client
+	model     string
+	ticker    *time.Ticker // rate-limiter; stopped via Close()
+	firstCall atomic.Bool  // skip throttle on the first call
+	apiKey    string       // empty = not configured, short-circuits Extract
 }
 
 // NewGroqExtractor creates a Groq-backed Extractor. apiKey is the Groq
@@ -76,11 +81,14 @@ type GroqExtractor struct {
 func NewGroqExtractor(apiKey, model string) *GroqExtractor {
 	cfg := openai.DefaultConfig(apiKey)
 	cfg.BaseURL = groqBaseURL
-	return &GroqExtractor{
+	g := &GroqExtractor{
 		client: openai.NewClientWithConfig(cfg),
 		model:  model,
 		ticker: time.NewTicker(groqThrottle),
+		apiKey: apiKey,
 	}
+	g.firstCall.Store(true)
+	return g
 }
 
 // Close stops the rate-limiter ticker. Safe to call multiple times.
@@ -93,6 +101,12 @@ func (g *GroqExtractor) Close() {
 }
 
 func (g *GroqExtractor) Extract(ctx context.Context, title, description string) (JobMeta, error) {
+	// Short-circuit when API key is not configured — avoids wasting 18s
+	// throttle + 401 API call per job. The enricher falls back to regex.
+	if g.apiKey == "" {
+		return JobMeta{}, fmt.Errorf("groq: API key not configured")
+	}
+
 	// Skip short/empty JDs — regex handles them. ~20% of scraped jobs have
 	// empty descriptions; sending them to Groq wastes ~1,100 tokens each.
 	if len(strings.TrimSpace(description)) < groqMinJDLength {
@@ -105,20 +119,27 @@ func (g *GroqExtractor) Extract(ctx context.Context, title, description string) 
 		description = description[:groqMaxJDChars]
 	}
 
-	// Rate-limit: block until the next throttle tick. This naturally
-	// spaces calls at 18s intervals, keeping us under 4K TPM.
-	select {
-	case <-g.ticker.C:
-	case <-ctx.Done():
-		return JobMeta{}, ctx.Err()
+	// Rate-limit: skip the wait on the first call, then enforce 18s spacing
+	// for subsequent calls.
+	if g.firstCall.Load() {
+		g.firstCall.Store(false)
+	} else {
+		select {
+		case <-g.ticker.C:
+		case <-ctx.Done():
+			return JobMeta{}, ctx.Err()
+		}
 	}
 
+	// Keep the original description for DetectExpertise (keyword fallback
+	// has no token budget and can safely scan the full JD).
+	originalDescription := description
 	systemMsg := skillsPrompt + "\n\nReturn JSON with this shape:\n" + jobMetaSchemaDescription
 	userMsg := fmt.Sprintf("Title: %s\n\nDescription:\n%s\n\nReturn ONLY a JSON object. No prose, no markdown fences.", title, description)
 
 	var lastErr error
 	for attempt := 0; attempt <= groqMaxRetries; attempt++ {
-		meta, err := g.callGroq(ctx, systemMsg, userMsg)
+		meta, err := g.callGroq(ctx, systemMsg, userMsg, title, originalDescription)
 		if err == nil {
 			return meta, nil
 		}
@@ -137,7 +158,7 @@ func (g *GroqExtractor) Extract(ctx context.Context, title, description string) 
 	return JobMeta{}, fmt.Errorf("groq extraction failed after %d attempts: %w", groqMaxRetries+1, lastErr)
 }
 
-func (g *GroqExtractor) callGroq(ctx context.Context, systemMsg, userMsg string) (JobMeta, error) {
+func (g *GroqExtractor) callGroq(ctx context.Context, systemMsg, userMsg, title, description string) (JobMeta, error) {
 	resp, err := g.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
 		Model: g.model,
 		Messages: []openai.ChatCompletionMessage{
@@ -149,7 +170,7 @@ func (g *GroqExtractor) callGroq(ctx context.Context, systemMsg, userMsg string)
 	})
 	if err != nil {
 		// API/network/rate-limit error — return as plain error so
-		// Extract() doesn't retry, ChainExtractor falls back immediately.
+		// Extract() doesn't retry. The BatchEnricher handles fallback.
 		return JobMeta{}, fmt.Errorf("groq API call: %w", err)
 	}
 
@@ -185,6 +206,11 @@ func (g *GroqExtractor) callGroq(ctx context.Context, systemMsg, userMsg string)
 	}
 	if meta.Tags == nil {
 		meta.Tags = map[string][]string{}
+	}
+	// Validate expertise: AI may return non-canonical values (e.g. "security"
+	// instead of "support_security"). Fall back to keyword detection.
+	if meta.Expertise == "" || !IsValidExpertise(meta.Expertise) {
+		meta.Expertise = DetectExpertise(title, description)
 	}
 	meta.Model = g.model
 

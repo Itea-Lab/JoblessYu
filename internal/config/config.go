@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"os"
+	"strconv"
 
 	"github.com/joho/godotenv"
 )
@@ -15,10 +16,12 @@ type Config struct {
 	// Database
 	DatabaseURL string
 
-	// AI (Slice D wires these; Slice C just loads them)
-	AIProvider string // "groq" (default), future: "google"
+	// AI
 	GroqAPIKey string
 	AIModel    string
+
+	// Job retention
+	JobRetentionDays int
 }
 
 func Load() *Config {
@@ -31,7 +34,6 @@ func Load() *Config {
 		DatabaseURL:  os.Getenv("DATABASE_URL"),
 		DiscordGuild: os.Getenv("DISCORD_GUILD_ID"),
 
-		AIProvider: os.Getenv("AI_PROVIDER"),
 		GroqAPIKey: os.Getenv("GROQ_API_KEY"),
 		AIModel:    os.Getenv("AI_MODEL"),
 	}
@@ -46,15 +48,19 @@ func Load() *Config {
 		log.Println("config: DISCORD_GUILD_ID is not set; slash commands will be registered globally")
 	}
 
-	// AI config defaults. Slice D uses these; Slice C just validates.
-	if cfg.AIProvider == "" {
-		cfg.AIProvider = "groq"
-	}
+	// AI config defaults.
 	if cfg.AIModel == "" {
 		cfg.AIModel = "llama-3.1-8b-instant"
 	}
 	if cfg.GroqAPIKey == "" {
-		log.Println("config: GROQ_API_KEY is not set; AI extractor will fall back to regex (Slice D)")
+		log.Println("config: GROQ_API_KEY is not set; AI enrichment will be skipped")
+	}
+
+	cfg.JobRetentionDays = 60
+	if v := os.Getenv("JOB_RETENTION_DAYS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg.JobRetentionDays = n
+		}
 	}
 
 	return cfg

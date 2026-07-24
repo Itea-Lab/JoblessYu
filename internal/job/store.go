@@ -91,9 +91,11 @@ func (r *JobRepository) Close() {
 func (r *JobRepository) FetchRawJobs(ctx context.Context, q JobQuery) ([]JobEntry, error) {
 	args := []interface{}{}
 	argIdx := 1
-	query := `SELECT id, COALESCE(title, ''), COALESCE(company, ''), COALESCE(location, ''), job_url, COALESCE(NULLIF(job_type_normalized, ''), COALESCE(job_type, '')), COALESCE(description, ''), COALESCE(level, ''), ai_processed_at, COALESCE(tags, '{}'::jsonb), COALESCE(summary, ''), COALESCE(salary, ''), COALESCE(remote, false), COALESCE(ai_model, '') FROM jobs`
+	query := `SELECT id, COALESCE(title, ''), COALESCE(company, ''), COALESCE(location, ''), job_url, COALESCE(NULLIF(job_type_normalized, ''), COALESCE(job_type, '')), COALESCE(description, ''), COALESCE(level, ''), ai_processed_at, COALESCE(tags, '{}'::jsonb), COALESCE(summary, ''), COALESCE(salary, ''), COALESCE(remote, false), COALESCE(ai_model, ''), COALESCE(expertise, '') FROM jobs`
 
-	var conditions []string
+	// Only show AI-enriched jobs — un-enriched jobs are hidden from users
+	// until the daily batch enrichment processes them.
+	conditions := []string{"ai_processed_at IS NOT NULL"}
 	if q.Level != "" && !q.IncludeUnknown && !q.AIEnabled {
 		// Apply the DB-side level predicate only when the caller wants the
 		// strict (narrow) path AND AI is not enabled. When includeUnknown is
@@ -149,6 +151,11 @@ func (r *JobRepository) FetchRawJobs(ctx context.Context, q JobQuery) ([]JobEntr
 		args = append(args, "%HN%", "%Ha Noi%", "%Hanoi%")
 		argIdx += 3
 	}
+	if q.Expertise != "" {
+		conditions = append(conditions, fmt.Sprintf(`expertise = $%d`, argIdx))
+		args = append(args, q.Expertise)
+		argIdx++
+	}
 
 	if len(conditions) > 0 {
 		query += ` WHERE ` + strings.Join(conditions, " AND ")
@@ -169,11 +176,11 @@ func (r *JobRepository) FetchRawJobs(ctx context.Context, q JobQuery) ([]JobEntr
 	var jobs []JobEntry
 	for rows.Next() {
 		var id int64
-		var title, company, loc, url, jobTypeDB, description, level, summary, salary, aiModel string
+		var title, company, loc, url, jobTypeDB, description, level, summary, salary, aiModel, expertise string
 		var remote bool
 		var aiProcessedAt sql.NullTime
 		var tagsJSON []byte
-		if err := rows.Scan(&id, &title, &company, &loc, &url, &jobTypeDB, &description, &level, &aiProcessedAt, &tagsJSON, &summary, &salary, &remote, &aiModel); err != nil {
+		if err := rows.Scan(&id, &title, &company, &loc, &url, &jobTypeDB, &description, &level, &aiProcessedAt, &tagsJSON, &summary, &salary, &remote, &aiModel, &expertise); err != nil {
 			log.Printf("job repository: scan error (skipping row): %v", err)
 			continue
 		}
@@ -194,6 +201,7 @@ func (r *JobRepository) FetchRawJobs(ctx context.Context, q JobQuery) ([]JobEntr
 			Description: description,
 			Type:        jobTypeDB,
 			Level:       level,
+			Expertise:   expertise,
 			AIProcessed: aiProcessedAt.Valid,
 			Summary:     summary,
 			Salary:      salary,
@@ -227,15 +235,111 @@ func (r *JobRepository) MarkAIProcessed(ctx context.Context, jobID int64, meta J
 	_, err = r.pool.Exec(ctx,
 		`UPDATE jobs
 		 SET level               = $1,
-		     job_type_normalized = $2,
-		     tags                = $3,
-		     summary             = $4,
-		     salary              = $5,
-		     remote              = $6,
-		     ai_processed_at     = NOW(),
-		     ai_model            = $7
-		 WHERE id = $8`,
-		meta.Level, meta.Type, tagsJSON, meta.Summary, meta.Salary, meta.Remote, meta.Model, jobID,
+ 		     job_type_normalized = $2,
+ 		     tags                = $3,
+ 		     summary             = $4,
+ 		     salary              = $5,
+ 		     remote              = $6,
+ 		     ai_processed_at     = NOW(),
+ 		     ai_model            = $7,
+ 		     expertise           = $8
+ 		 WHERE id = $9`,
+		meta.Level, meta.Type, tagsJSON, meta.Summary, meta.Salary, meta.Remote, meta.Model, meta.Expertise, jobID,
 	)
 	return err
+}
+
+// FetchUnenrichedJobs returns all jobs where ai_processed_at IS NULL,
+// ordered by fetched_at DESC. Used by the BatchEnricher to find jobs
+// that need AI classification.
+func (r *JobRepository) FetchUnenrichedJobs(ctx context.Context) ([]JobEntry, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, COALESCE(title, ''), COALESCE(company, ''), COALESCE(location, ''),
+		        job_url, COALESCE(NULLIF(job_type_normalized, ''), COALESCE(job_type, '')),
+		        COALESCE(description, ''), COALESCE(remote, false)
+		 FROM jobs
+		 WHERE ai_processed_at IS NULL
+		 ORDER BY fetched_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var jobs []JobEntry
+	for rows.Next() {
+		var j JobEntry
+		if err := rows.Scan(&j.ID, &j.Title, &j.Company, &j.Location, &j.URL, &j.Type, &j.Description, &j.Remote); err != nil {
+			log.Printf("FetchUnenrichedJobs: scan error (skipping row): %v", err)
+			continue
+		}
+		jobs = append(jobs, j)
+	}
+	return jobs, rows.Err()
+}
+
+// DeleteJob removes a single job by ID. Used by the enricher to delete
+// jobs with empty/useless descriptions.
+func (r *JobRepository) DeleteJob(ctx context.Context, jobID int64) error {
+	_, err := r.pool.Exec(ctx, `DELETE FROM jobs WHERE id = $1`, jobID)
+	return err
+}
+
+// DeleteOldJobs removes jobs older than the retention period. Returns
+// the number of rows deleted. Called by the weekly cleanup cron.
+func (r *JobRepository) DeleteOldJobs(ctx context.Context, retentionDays int) (int64, error) {
+	tag, err := r.pool.Exec(ctx,
+		`DELETE FROM jobs WHERE fetched_at < NOW() - $1 * interval '1 day'`,
+		retentionDays)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+// UpsertJobs bulk-inserts scraped jobs, updating existing rows on conflict.
+// If the job description changes (employer updated the JD), all AI enrichment
+// fields are reset to NULL — forcing re-enrichment in the next batch.
+func (r *JobRepository) UpsertJobs(ctx context.Context, jobs []JobEntry) (int, error) {
+	if len(jobs) == 0 {
+		return 0, nil
+	}
+
+	inserted := 0
+	for _, j := range jobs {
+		_, err := r.pool.Exec(ctx,
+			`INSERT INTO jobs (job_id, site, job_url, title, company, location, job_type, description, remote)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			 ON CONFLICT (site, job_url) DO UPDATE SET
+			   title       = EXCLUDED.title,
+			   company     = EXCLUDED.company,
+			   location    = EXCLUDED.location,
+			   job_type    = EXCLUDED.job_type,
+			   description = EXCLUDED.description,
+			   fetched_at  = NOW(),
+			   remote      = jobs.remote OR EXCLUDED.remote,
+			   ai_processed_at     = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
+			                              THEN NULL ELSE jobs.ai_processed_at END,
+			   level               = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
+			                              THEN NULL ELSE jobs.level END,
+			   job_type_normalized = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
+			                              THEN NULL ELSE jobs.job_type_normalized END,
+			   tags                = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
+			                              THEN '{}'::jsonb ELSE jobs.tags END,
+			   summary             = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
+			                              THEN NULL ELSE jobs.summary END,
+			   salary              = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
+			                              THEN NULL ELSE jobs.salary END,
+			   ai_model            = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
+			                              THEN NULL ELSE jobs.ai_model END,
+			   expertise           = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
+			                              THEN NULL ELSE jobs.expertise END`,
+			j.URL, j.Site, j.URL, j.Title, j.Company, j.Location, j.Type, j.Description, j.Remote,
+		)
+		if err != nil {
+			log.Printf("UpsertJobs: error on %s (skipping): %v", j.URL, err)
+			continue
+		}
+		inserted++
+	}
+	return inserted, nil
 }
