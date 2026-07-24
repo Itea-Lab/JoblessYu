@@ -17,7 +17,7 @@ type JobEntry struct {
 	Summary     string              // AI-generated JD summary (empty when regex-classified)
 	Salary      string              // AI-extracted salary range (empty when not mentioned)
 	Remote      bool                // AI-detected remote-eligible flag
-	AIModel     string              // which extractor produced the result (e.g. "regex", "qwen/qwen3.6-27b")
+	AIModel     string              // which extractor produced the result (e.g. "regex", "llama-3.1-8b-instant")
 }
 
 // JobMeta is the result of AI (or regex-fallback) extraction on a job
@@ -31,7 +31,7 @@ type JobMeta struct {
 	Salary  string // populated by AI; "" from regex fallback
 	Remote  bool   // populated by AI; false from regex fallback
 	Summary string // populated by AI; "" from regex fallback
-	Model   string // identifies which extractor produced this result (e.g. "regex", "qwen/qwen3.6-27b")
+	Model   string // identifies which extractor produced this result (e.g. "regex", "llama-3.1-8b-instant")
 }
 
 // JobQuery is the filter contract between the bot/service and the

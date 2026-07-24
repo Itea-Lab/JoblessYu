@@ -22,25 +22,29 @@ var skillsPrompt string
 //   1,000 RPD   — requests per day
 //   200,000 TPD — tokens per day
 //
-// Actual tokens per call (measured, not estimated):
+// Actual tokens per call (measured against real JDs):
 //   skills.md system prompt: ~706 tokens
 //   schema.go description:  ~249 tokens
-//   typical JD user message: ~300 tokens
+//   JD user message (truncated to 1,500 chars): ~375 tokens
 //   JSON output:             ~200 tokens
-//   TOTAL:                   ~1,455 tokens/call
+//   TOTAL:                   ~1,530 tokens/call
 //
-// Without prompt caching: 8,000 / 1,455 ≈ 5 calls/min max.
-// 12s throttle = 5 calls/min × 1,455 = 7,275 tokens/min (under 8K TPM).
-// This is safe WITHOUT relying on Groq's prompt caching (which is automatic
-// but not guaranteed — cache may be evicted on long gaps between /jobs queries).
+// 18s throttle = 3.3 calls/min × 1,530 = ~5,050 tokens/min (63% of 8K TPM).
+// This leaves comfortable headroom for occasional long JDs and avoids
+// relying on Groq's prompt caching (which is automatic but not guaranteed).
 //
-// First /jobs on 20 un-enriched jobs: ~4 min (12s × 20). Discord interaction
+// JDs shorter than 50 chars are skipped entirely (regex handles them) —
+// ~20% of scraped jobs have empty descriptions, each wasting ~1,100 tokens.
+//
+// First /jobs on 20 un-enriched jobs: ~6 min (18s × 20). Discord interaction
 // timeout is 15 min — safe margin.
 const (
-	groqBaseURL    = "https://api.groq.com/openai/v1"
-	groqThrottle   = 12 * time.Second
-	groqMaxRetries = 1 // retry once on JSON parse failure, then fall back
-	groqMaxTokens  = 800
+	groqBaseURL     = "https://api.groq.com/openai/v1"
+	groqThrottle    = 18 * time.Second
+	groqMaxRetries  = 1  // retry once on JSON parse failure, then fall back
+	groqMaxTokens   = 800
+	groqMaxJDChars  = 1500 // truncate JDs to this many chars before sending
+	groqMinJDLength = 50   // skip Groq for JDs shorter than this
 )
 
 // jsonParseError wraps a JSON unmarshal failure. Extract retries only on
@@ -52,8 +56,12 @@ func (e *jsonParseError) Error() string { return e.err.Error() }
 func (e *jsonParseError) Unwrap() error { return e.err }
 
 // GroqExtractor calls Groq's OpenAI-compatible API to classify job
-// descriptions. It embeds skills.md as the system prompt and requests
-// JSON object mode (qwen/qwen3.6-27b does not support strict JSON schema).
+// descriptions. It embeds skills.md as the system prompt and parses
+// JSON from the model's free-text response (no response_format constraint,
+// which avoids 400 "Failed to generate JSON" errors on certain models).
+//
+// JDs shorter than 50 chars are rejected immediately so regex handles them.
+// JDs are truncated to 1,500 chars to stay within Groq's free-tier TPM limit.
 //
 // On JSON parse failure, it retries once. On API/network failure, it
 // returns immediately so ChainExtractor can fall back to RegexExtractor.
@@ -64,7 +72,7 @@ type GroqExtractor struct {
 }
 
 // NewGroqExtractor creates a Groq-backed Extractor. apiKey is the Groq
-// API key; model is the Groq model ID (e.g. "qwen/qwen3.6-27b").
+// API key; model is the Groq model ID (e.g. "llama-3.1-8b-instant").
 func NewGroqExtractor(apiKey, model string) *GroqExtractor {
 	cfg := openai.DefaultConfig(apiKey)
 	cfg.BaseURL = groqBaseURL
@@ -85,8 +93,20 @@ func (g *GroqExtractor) Close() {
 }
 
 func (g *GroqExtractor) Extract(ctx context.Context, title, description string) (JobMeta, error) {
+	// Skip short/empty JDs — regex handles them. ~20% of scraped jobs have
+	// empty descriptions; sending them to Groq wastes ~1,100 tokens each.
+	if len(strings.TrimSpace(description)) < groqMinJDLength {
+		return JobMeta{}, fmt.Errorf("groq: JD too short (%d chars), skipping", len(description))
+	}
+
+	// Truncate JD to limit token usage. Most job-relevant info (title,
+	// required skills, experience level) appears in the first paragraph.
+	if len(description) > groqMaxJDChars {
+		description = description[:groqMaxJDChars]
+	}
+
 	// Rate-limit: block until the next throttle tick. This naturally
-	// spaces calls at 12s intervals, keeping us under 5 calls/min.
+	// spaces calls at 18s intervals, keeping us under 4K TPM.
 	select {
 	case <-g.ticker.C:
 	case <-ctx.Done():
@@ -94,7 +114,7 @@ func (g *GroqExtractor) Extract(ctx context.Context, title, description string) 
 	}
 
 	systemMsg := skillsPrompt + "\n\nReturn JSON with this shape:\n" + jobMetaSchemaDescription
-	userMsg := fmt.Sprintf("Title: %s\n\nDescription:\n%s", title, description)
+	userMsg := fmt.Sprintf("Title: %s\n\nDescription:\n%s\n\nReturn ONLY a JSON object. No prose, no markdown fences.", title, description)
 
 	var lastErr error
 	for attempt := 0; attempt <= groqMaxRetries; attempt++ {
@@ -124,9 +144,6 @@ func (g *GroqExtractor) callGroq(ctx context.Context, systemMsg, userMsg string)
 			{Role: openai.ChatMessageRoleSystem, Content: systemMsg},
 			{Role: openai.ChatMessageRoleUser, Content: userMsg},
 		},
-		ResponseFormat: &openai.ChatCompletionResponseFormat{
-			Type: openai.ChatCompletionResponseFormatTypeJSONObject,
-		},
 		Temperature: 0.0,
 		MaxTokens:   groqMaxTokens,
 	})
@@ -146,14 +163,23 @@ func (g *GroqExtractor) callGroq(ctx context.Context, systemMsg, userMsg string)
 		return JobMeta{}, fmt.Errorf("groq returned empty content")
 	}
 
-	var meta JobMeta
-	if err := json.Unmarshal([]byte(content), &meta); err != nil {
-		// JSON parse error — wrap as jsonParseError so Extract() retries.
-		return JobMeta{}, &jsonParseError{err: fmt.Errorf("parse groq JSON: %w (content: %s)", err, truncate(content, 200))}
+	// Extract JSON from the response. The model may wrap it in markdown
+	// fences (```json ... ```) or add prose around it. Find the first {...}
+	// block and parse that. This is more robust than response_format:
+	// json_object mode, which causes 400 errors on certain models/prompts.
+	jsonStr := extractJSON(content)
+	if jsonStr == "" {
+		return JobMeta{}, &jsonParseError{err: fmt.Errorf("no JSON object found in response (content: %s)", truncate(content, 200))}
 	}
 
-	// Validate required fields. Groq JSON object mode guarantees valid
-	// JSON but not schema adherence — a retry may fix a malformed response.
+	var meta JobMeta
+	if err := json.Unmarshal([]byte(jsonStr), &meta); err != nil {
+		// JSON parse error — wrap as jsonParseError so Extract() retries.
+		return JobMeta{}, &jsonParseError{err: fmt.Errorf("parse groq JSON: %w (content: %s)", err, truncate(jsonStr, 200))}
+	}
+
+	// Validate required fields. Without response_format constraints, the
+	// model may omit fields — defaults keep the structure valid.
 	if meta.Level == "" {
 		meta.Level = LevelUnknown
 	}
@@ -163,6 +189,28 @@ func (g *GroqExtractor) callGroq(ctx context.Context, systemMsg, userMsg string)
 	meta.Model = g.model
 
 	return meta, nil
+}
+
+// extractJSON finds the first {...} block in the response content.
+// Handles markdown fences, leading/trailing prose, and nested braces.
+func extractJSON(s string) string {
+	start := strings.Index(s, "{")
+	if start == -1 {
+		return ""
+	}
+	depth := 0
+	for i := start; i < len(s); i++ {
+		switch s[i] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return s[start : i+1]
+			}
+		}
+	}
+	return ""
 }
 
 func truncate(s string, n int) string {

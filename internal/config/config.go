@@ -51,7 +51,7 @@ func Load() *Config {
 		cfg.AIProvider = "groq"
 	}
 	if cfg.AIModel == "" {
-		cfg.AIModel = "qwen/qwen3.6-27b"
+		cfg.AIModel = "llama-3.1-8b-instant"
 	}
 	if cfg.GroqAPIKey == "" {
 		log.Println("config: GROQ_API_KEY is not set; AI extractor will fall back to regex (Slice D)")

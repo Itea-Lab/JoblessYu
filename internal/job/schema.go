@@ -1,10 +1,8 @@
 package job
 
 // jobMetaSchemaDescription is the JSON shape the Groq extractor must
-// return. Embedded in the system prompt because qwen/qwen3.6-27b does
-// NOT support Groq's strict JSON schema mode (response_format with
-// json_schema + strict: true). Instead we use json_object mode + describe
-// the schema in the prompt + validate/retry on the client side.
+// return. Embedded in the system prompt to reinforce the expected output
+// shape alongside json_object response_format mode.
 const jobMetaSchemaDescription = `{
   "level":   "string — one of: Intern, Fresher, Junior, Senior, Unknown",
   "type":    "string — one of: Fulltime, Parttime, Contract, Internship, Unknown",

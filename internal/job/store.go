@@ -213,7 +213,7 @@ func (r *JobRepository) FetchRawJobs(ctx context.Context, q JobQuery) ([]JobEntr
 // MarkAIProcessed writes AI extraction results back to the jobs row so
 // subsequent /jobs queries skip re-extraction (lazy enrichment). The
 // meta.Model field identifies which extractor produced the result (e.g.
-// "regex", "qwen/qwen3.6-27b") and is stored in ai_model for audit.
+// "regex", "llama-3.1-8b-instant") and is stored in ai_model for audit.
 func (r *JobRepository) MarkAIProcessed(ctx context.Context, jobID int64, meta JobMeta) error {
 	tags := meta.Tags
 	if tags == nil {
