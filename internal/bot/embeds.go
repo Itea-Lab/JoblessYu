@@ -37,6 +37,66 @@ func buildJobSweeperEmbed(state criteriaState, notice string) *discordgo.Message
 	}
 }
 
+func buildJobSweeperV2Components(state criteriaState, notice string) []discordgo.MessageComponent {
+	levelLabel := levelLabelFromValue(state.LevelValue)
+	locationLabel := locationLabelFromValue(state.LocationValue)
+
+	criteria := "**Current Active Filters:**\n\n" +
+		fmt.Sprintf("• **Position:** `%s` *(Click button below to change)*\n", state.PositionTitle) +
+		fmt.Sprintf("• **Level:** `%s`\n", levelLabel) +
+		fmt.Sprintf("• **Location:** `%s`", locationLabel)
+	if notice != "" {
+		criteria += "\n\n" + notice
+	}
+
+	levelSelect := discordgo.SelectMenu{
+		CustomID:    "select_level",
+		Placeholder: "Choose Experience Level (Optional)",
+		Options: []discordgo.SelectMenuOption{
+			{Label: "Intern", Value: "intern", Description: "Entry level & internship roles", Emoji: &discordgo.ComponentEmoji{Name: "🌱"}},
+			{Label: "Junior", Value: "junior", Description: "1-3 years of experience", Emoji: &discordgo.ComponentEmoji{Name: "💻"}},
+			{Label: "Senior", Value: "senior", Description: "5+ years & leadership roles", Emoji: &discordgo.ComponentEmoji{Name: "⚡"}},
+		},
+	}
+
+	locationSelect := discordgo.SelectMenu{
+		CustomID:    "select_location",
+		Placeholder: "Choose Location (Optional)",
+		Options: []discordgo.SelectMenuOption{
+			{Label: "Ho Chi Minh", Value: "hcm", Emoji: &discordgo.ComponentEmoji{Name: "🏙️"}},
+			{Label: "Ha Noi", Value: "hanoi", Emoji: &discordgo.ComponentEmoji{Name: "🏛️"}},
+			{Label: "Both / Remote", Value: "all", Emoji: &discordgo.ComponentEmoji{Name: "🌐"}},
+		},
+	}
+
+	setPositionBtn := discordgo.Button{
+		CustomID: "open_position_modal",
+		Label:    "Set Position Title",
+		Style:    discordgo.SecondaryButton,
+		Emoji:    &discordgo.ComponentEmoji{Name: "📝"},
+	}
+
+	searchBtn := discordgo.Button{
+		CustomID: "trigger_job_search",
+		Label:    "Search Jobs",
+		Style:    discordgo.SuccessButton,
+		Emoji:    &discordgo.ComponentEmoji{Name: "🚀"},
+	}
+
+	accentColor := 0x5865F2
+	container := discordgo.Container{
+		AccentColor: &accentColor,
+		Components: []discordgo.MessageComponent{
+			discordgo.TextDisplay{Content: "## 🔍 Job Sweeper Criteria\n" + criteria},
+			discordgo.ActionsRow{Components: []discordgo.MessageComponent{levelSelect}},
+			discordgo.ActionsRow{Components: []discordgo.MessageComponent{locationSelect}},
+			discordgo.ActionsRow{Components: []discordgo.MessageComponent{setPositionBtn, searchBtn}},
+		},
+	}
+
+	return []discordgo.MessageComponent{container}
+}
+
 func buildJobSweeperComponents() []discordgo.MessageComponent {
 	levelSelect := discordgo.SelectMenu{
 		CustomID:    "select_level",

@@ -27,14 +27,13 @@ func (b *Bot) handleInteraction(s *discordgo.Session, i *discordgo.InteractionCr
 
 func (b *Bot) handleJobsSlash(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	state := defaultCriteriaState()
-	embed := buildJobSweeperEmbed(state, "")
-	components := buildJobSweeperComponents()
+	components := buildJobSweeperV2Components(state, "")
 
 	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
-			Embeds:     []*discordgo.MessageEmbed{embed},
 			Components: components,
+			Flags:      discordgo.MessageFlagsIsComponentsV2,
 		},
 	})
 	if err != nil {
@@ -82,8 +81,8 @@ func (b *Bot) handleSweeperComponent(s *discordgo.Session, i *discordgo.Interact
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseUpdateMessage,
 			Data: &discordgo.InteractionResponseData{
-				Embeds:     []*discordgo.MessageEmbed{buildJobSweeperEmbed(state, "")},
-				Components: buildJobSweeperComponents(),
+				Components: buildJobSweeperV2Components(state, ""),
+				Flags:      discordgo.MessageFlagsIsComponentsV2,
 			},
 		})
 	case "select_location":
@@ -94,8 +93,8 @@ func (b *Bot) handleSweeperComponent(s *discordgo.Session, i *discordgo.Interact
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseUpdateMessage,
 			Data: &discordgo.InteractionResponseData{
-				Embeds:     []*discordgo.MessageEmbed{buildJobSweeperEmbed(state, "")},
-				Components: buildJobSweeperComponents(),
+				Components: buildJobSweeperV2Components(state, ""),
+				Flags:      discordgo.MessageFlagsIsComponentsV2,
 			},
 		})
 	case "open_position_modal":
@@ -159,8 +158,8 @@ func (b *Bot) handleModalSubmit(s *discordgo.Session, i *discordgo.InteractionCr
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseUpdateMessage,
 		Data: &discordgo.InteractionResponseData{
-			Embeds:     []*discordgo.MessageEmbed{buildJobSweeperEmbed(state, "")},
-			Components: buildJobSweeperComponents(),
+			Components: buildJobSweeperV2Components(state, ""),
+			Flags:      discordgo.MessageFlagsIsComponentsV2,
 		},
 	})
 }
@@ -183,22 +182,24 @@ func (b *Bot) handleSearchJobs(s *discordgo.Session, i *discordgo.InteractionCre
 
 	jobs, err := b.jobService.FetchAndProcessJobs(ctx, q)
 	if err != nil {
-		content := "Failed to fetch jobs. Please try again later."
-		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content})
+		_, _ = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+			Content: "Failed to fetch jobs. Please try again later.",
+		})
 		log.Println("Search jobs fetch error:", err)
 		return
 	}
 
 	jobs = filterJobsByPosition(jobs, state.PositionTitle)
 	if len(jobs) == 0 {
-		embed := buildJobSweeperEmbed(state, "No jobs found with the current filters.")
-		components := buildJobSweeperComponents()
+		components := buildJobSweeperV2Components(state, "No jobs found with the current filters.")
 		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds:     &[]*discordgo.MessageEmbed{embed},
 			Components: &components,
 		})
 		return
 	}
+
+	criteriaComponents := buildJobSweeperV2Components(state, "")
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Components: &criteriaComponents})
 
 	embed := buildJobEmbed(jobs[0], 1, len(jobs))
 	components := []discordgo.MessageComponent{
@@ -208,12 +209,12 @@ func (b *Bot) handleSearchJobs(s *discordgo.Session, i *discordgo.InteractionCre
 		}},
 	}
 
-	msg, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Embeds:     &[]*discordgo.MessageEmbed{embed},
-		Components: &components,
+	msg, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+		Embeds:     []*discordgo.MessageEmbed{embed},
+		Components: components,
 	})
 	if err != nil {
-		log.Println("Search jobs edit error:", err)
+		log.Println("Search jobs followup error:", err)
 		return
 	}
 
@@ -224,6 +225,9 @@ func (b *Bot) handleSearchJobs(s *discordgo.Session, i *discordgo.InteractionCre
 	}
 	if i.Message != nil && i.Message.Interaction != nil && i.Message.Interaction.ID != "" {
 		b.jobsCache[i.Message.Interaction.ID] = entry
+	}
+	if i.Interaction != nil && i.Interaction.ID != "" {
+		b.jobsCache[i.Interaction.ID] = entry
 	}
 	if msg != nil && msg.ID != "" {
 		b.jobsCache[msg.ID] = entry
