@@ -1,10 +1,4 @@
-.PHONY: dev bot test lint lint-go lint-python scrape migrate clean
-
-# Export .env vars into the shell environment. Uses Python's dotenv
-# (already a project dependency) to parse correctly — handles values
-# with &, =, spaces, and quotes the same way Go's godotenv does.
-# Usage in targets: $$(eval $$($(ENVLOAD))) then use $$VAR_NAME.
-ENVLOAD := python3 -c "from dotenv import dotenv_values; [print(f'export {k}={v!r}') for k,v in dotenv_values('.env').items()]"
+.PHONY: dev bot test lint lint-go lint-python scrape enrich migrate clean
 
 bot:
 	@go run ./cmd/bot || [ $$? -eq 1 ]  # suppress cosmetic exit code 1 from Ctrl+C
@@ -20,13 +14,19 @@ lint-go:
 	go vet ./...
 
 lint-python:
-	ruff check scraper-python/ || true  # don't fail CI if ruff isn't installed locally
+	ruff check scraper-python/ || true
 
+# Full pipeline: jobspy (Indeed+LinkedIn) + Colly (ITViec) + AI enrichment
 scrape:
-	cd scraper-python && source .venv/bin/activate && python JoblessYu.py
+	go run ./cmd/bot -scrape
 
+# Enrichment only (no scraping)
+enrich:
+	go run ./cmd/bot -enrich
+
+# DB migrations
 migrate:
-	@eval $$($(ENVLOAD)) && for f in migrations/*.sql; do echo "Applying $$f"; psql "$$DATABASE_URL" -f $$f; done
+	@eval $$(python3 -c "from dotenv import dotenv_values; [print(f'export {k}={v!r}') for k,v in dotenv_values('.env').items()]") && for f in migrations/*.sql; do echo "Applying $$f"; psql "$$DATABASE_URL" -f $$f; done
 
 clean:
-	rm -f jobs.json
+	rm -f jobs.json bot

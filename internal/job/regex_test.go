@@ -2,10 +2,8 @@ package job
 
 import (
 	"context"
-	"reflect"
 	"strings"
 	"testing"
-
 )
 
 func newExtractor() *RegexExtractor {
@@ -278,8 +276,6 @@ func flatten(tags map[string][]string) map[string]struct{} {
 	}
 	return out
 }
-
-var _ = reflect.DeepEqual
 
 // --- Level-word regex engine tests (moved from domain/levels_test.go) ---
 // These exercise the Go regex engine that consumes LevelRules.

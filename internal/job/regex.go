@@ -5,15 +5,14 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-
 )
 
 // RegexExtractor is the no-dependency, always-succeeds Extractor. It
 // replicates the level/type/tag detection that lived in
 // service.JobService.detectJobMeta + service.DetectTags before Slice B.
 //
-// It populates only Level, Type, and Tags. Salary, Remote, and Summary
-// are left zero-valued — those require the Groq extractor (Slice D).
+// It populates Level, Type, Expertise, and Tags. Salary, Remote, and Summary
+// are left zero-valued — those require the Groq extractor.
 type RegexExtractor struct {
 	noExpRe *regexp.Regexp
 	typeRe  *regexp.Regexp
@@ -22,9 +21,14 @@ type RegexExtractor struct {
 }
 
 // NewRegexExtractor returns a ready-to-use RegexExtractor. Level-word and
-// no-exp-phrase patterns are derived from LevelRules (the single
-// source of truth for the pattern strings), so edits there propagate here
-// without touching this file.
+// no-exp-phrase patterns are derived from LevelRules (the single source of
+// truth for the pattern strings), so edits there propagate here without
+// touching this file.
+//
+// NOTE: yearsRe is a standalone regex not derived from LevelRules — it
+// extracts the numeric years-of-experience which is then bucketed by the
+// hardcoded switch in detectLevel. If you add a new level to LevelRules,
+// you must also update the bucketing logic here.
 func NewRegexExtractor() *RegexExtractor {
 	return &RegexExtractor{
 		noExpRe: regexp.MustCompile(`(?i)\b` + noExpAlternation() + `\b`),
@@ -35,18 +39,22 @@ func NewRegexExtractor() *RegexExtractor {
 }
 
 func (r *RegexExtractor) Extract(_ context.Context, title, description string) (JobMeta, error) {
-	plain := r.htmlRe.ReplaceAllString(title+"\n"+description, " ")
-	hay := strings.ToLower(plain)
+	titlePlain := r.htmlRe.ReplaceAllString(title, " ")
+	descPlain := r.htmlRe.ReplaceAllString(description, " ")
+	combined := titlePlain + "\n" + descPlain
+	hay := strings.ToLower(combined)
 
-	level := r.detectLevel(plain, hay)
+	level := r.detectLevel(combined, hay)
 	jobType := r.detectType(hay)
-	tags := DetectTags(r.htmlRe.ReplaceAllString(title+"\n"+description, " "))
+	tags := DetectTags(combined)
+	expertise := DetectExpertise(titlePlain, descPlain)
 
 	return JobMeta{
-		Level: level,
-		Type:  jobType,
-		Tags:  tags,
-		Model: "regex",
+		Level:     level,
+		Type:      jobType,
+		Expertise: expertise,
+		Tags:      tags,
+		Model:     "regex",
 	}, nil
 }
 

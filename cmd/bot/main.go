@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"JoblessYu/internal/bot"
 	"JoblessYu/internal/config"
@@ -15,6 +17,10 @@ import (
 )
 
 func main() {
+	manualScrape := flag.Bool("scrape", false, "run a manual scrape (jobspy + Colly + enrichment), then exit")
+	manualEnrich := flag.Bool("enrich", false, "run a manual enrichment batch, then exit")
+	flag.Parse()
+
 	cfg := config.Load()
 
 	ctx := context.Background()
@@ -25,24 +31,27 @@ func main() {
 	}
 	defer repo.Close()
 
-	// Wire the extraction chain: Groq primary (accurate, may fail/rate-limit),
-	// Regex fallback (always succeeds, less accurate). When GROQ_API_KEY is
-	// not set, the chain degrades gracefully to regex-only.
-	regex := job.NewRegexExtractor()
-	var extractor job.Extractor = regex
-	if cfg.GroqAPIKey != "" {
-		groq := job.NewGroqExtractor(cfg.GroqAPIKey, cfg.AIModel)
-		extractor = job.NewChainExtractor(groq, regex)
-		log.Printf("AI extractor: Groq (model=%s) with regex fallback", cfg.AIModel)
-	} else {
-		log.Printf("AI extractor: regex only (GROQ_API_KEY not set)")
+	groq := job.NewGroqExtractor(cfg.GroqAPIKey, cfg.AIModel)
+	defer groq.Close()
+
+	collyScraper := job.NewCollyScraper()
+	enricher := job.NewBatchEnricher(repo, groq)
+	scraperMgr := scraper.NewScraperManager(repo, collyScraper, enricher, cfg.JobRetentionDays)
+
+	// Manual mode: run scrape or enrich, then exit (no bot, no cron).
+	if *manualScrape {
+		log.Println("Manual scrape: starting full pipeline (jobspy + Colly + enrichment)...")
+		scraperMgr.RunScrapeAndEnrich(ctx)
+		log.Println("Manual scrape complete.")
+		return
 	}
-	// Stop the Groq ticker on shutdown (no-op for regex-only).
-	if closer, ok := extractor.(interface{ Close() }); ok {
-		defer closer.Close()
+	if *manualEnrich {
+		runManualEnrich(ctx, enricher)
+		return
 	}
 
-	svc := job.NewJobService(repo, extractor)
+	// Normal mode: start bot + cron.
+	svc := job.NewJobService(repo)
 
 	disbot, err := bot.NewBot(cfg, svc)
 	if err != nil {
@@ -54,7 +63,6 @@ func main() {
 	}
 	defer disbot.Stop()
 
-	scraperMgr := scraper.NewScraperManager()
 	scraperMgr.StartSchedule()
 	defer scraperMgr.StopSchedule()
 
@@ -65,4 +73,14 @@ func main() {
 	<-stop
 
 	fmt.Println("Shutting down...")
+}
+
+func runManualEnrich(ctx context.Context, enricher *job.BatchEnricher) {
+	log.Println("Manual enrichment: starting...")
+	enrichCtx, cancel := context.WithTimeout(ctx, 2*time.Hour)
+	defer cancel()
+	if err := enricher.Run(enrichCtx); err != nil {
+		log.Fatalf("Enrichment failed: %v", err)
+	}
+	log.Println("Manual enrichment complete.")
 }
