@@ -22,37 +22,18 @@ func buildJobSweeperEmbed(state criteriaState, notice string) *discordgo.Message
 	levelLabel := levelLabelFromValue(state.LevelValue)
 	locationLabel := locationLabelFromValue(state.LocationValue)
 
-	fields := []*discordgo.MessageEmbedField{
-		{
-			Name:   "Position",
-			Value:  fmt.Sprintf("**%s**", state.PositionTitle),
-			Inline: false,
-		},
-		{
-			Name:   "Experience",
-			Value:  fmt.Sprintf("**%s**", levelLabel),
-			Inline: true,
-		},
-		{
-			Name:   "Location",
-			Value:  fmt.Sprintf("**%s**", locationLabel),
-			Inline: true,
-		},
-	}
-
+	desc := "**Current Active Filters:**\n\n" +
+		fmt.Sprintf("• **Position:** `%s` *(Click button below to change)*\n", state.PositionTitle) +
+		fmt.Sprintf("• **Level:** `%s`\n", levelLabel) +
+		fmt.Sprintf("• **Location:** `%s`", locationLabel)
 	if notice != "" {
-		fields = append(fields, &discordgo.MessageEmbedField{
-			Name:   "Status",
-			Value:  notice,
-			Inline: false,
-		})
+		desc += "\n\n" + notice
 	}
 
 	return &discordgo.MessageEmbed{
-		Title:       "Job Sweeper Criteria",
-		Description: "**Review your filters, then launch a search.**",
+		Title:       "🔍 Job Sweeper Criteria",
+		Description: desc,
 		Color:       0x5865F2,
-		Fields:      fields,
 	}
 }
 
@@ -61,9 +42,9 @@ func buildJobSweeperComponents() []discordgo.MessageComponent {
 		CustomID:    "select_level",
 		Placeholder: "Choose Experience Level (Optional)",
 		Options: []discordgo.SelectMenuOption{
-			{Label: "Intern", Value: "intern", Emoji: &discordgo.ComponentEmoji{Name: "🌱"}},
-			{Label: "Junior", Value: "junior", Emoji: &discordgo.ComponentEmoji{Name: "💻"}},
-			{Label: "Senior", Value: "senior", Emoji: &discordgo.ComponentEmoji{Name: "⚡"}},
+			{Label: "Intern", Value: "intern", Description: "Entry level & internship roles", Emoji: &discordgo.ComponentEmoji{Name: "🌱"}},
+			{Label: "Junior", Value: "junior", Description: "1-3 years of experience", Emoji: &discordgo.ComponentEmoji{Name: "💻"}},
+			{Label: "Senior", Value: "senior", Description: "5+ years & leadership roles", Emoji: &discordgo.ComponentEmoji{Name: "⚡"}},
 		},
 	}
 
