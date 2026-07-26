@@ -157,13 +157,13 @@ func (r *JobRepository) FetchRawJobs(ctx context.Context, q JobQuery) ([]JobEntr
 	}
 	switch q.Location {
 	case "HCM":
-		conditions = append(conditions, fmt.Sprintf(`(location ILIKE $%d OR location ILIKE $%d)`, argIdx, argIdx+1))
-		args = append(args, "%HCM%", "%Ho Chi Minh%")
-		argIdx += 2
+		conditions = append(conditions, fmt.Sprintf(`(location ILIKE $%d OR location ILIKE $%d OR location ILIKE $%d OR location ILIKE $%d)`, argIdx, argIdx+1, argIdx+2, argIdx+3))
+		args = append(args, "%HCM%", "%Ho Chi Minh%", "%Hồ Chí Minh%", "%SG%")
+		argIdx += 4
 	case "HN":
-		conditions = append(conditions, fmt.Sprintf(`(location ILIKE $%d OR location ILIKE $%d OR location ILIKE $%d)`, argIdx, argIdx+1, argIdx+2))
-		args = append(args, "%HN%", "%Ha Noi%", "%Hanoi%")
-		argIdx += 3
+		conditions = append(conditions, fmt.Sprintf(`(location ILIKE $%d OR location ILIKE $%d OR location ILIKE $%d OR location ILIKE $%d)`, argIdx, argIdx+1, argIdx+2, argIdx+3))
+		args = append(args, "%HN%", "%Ha Noi%", "%Hanoi%", "%Hà Nội%")
+		argIdx += 4
 	}
 	if q.Expertise != "" {
 		conditions = append(conditions, fmt.Sprintf(`expertise = $%d`, argIdx))
@@ -177,7 +177,7 @@ func (r *JobRepository) FetchRawJobs(ctx context.Context, q JobQuery) ([]JobEntr
 
 	limit := q.Limit
 	if limit <= 0 {
-		limit = 20
+		limit = 1000
 	}
 	query += fmt.Sprintf(` ORDER BY fetched_at DESC LIMIT %d`, limit)
 

@@ -26,6 +26,7 @@ type criteriaState struct {
 	PositionValue string
 	LevelValue    string
 	LocationValue string
+	JobTypeValue  string
 }
 
 type cachedCriteria struct {

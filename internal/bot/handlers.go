@@ -60,7 +60,7 @@ func (b *Bot) handleMessageComponent(s *discordgo.Session, i *discordgo.Interact
 	switch i.MessageComponentData().CustomID {
 	case "job_page_prev", "job_page_next":
 		b.handlePaginationComponent(s, i)
-	case "select_position", "select_level", "select_location", "trigger_job_search":
+	case "select_position", "select_level", "select_location", "select_type", "trigger_job_search":
 		b.handleSweeperComponent(s, i)
 	}
 }
@@ -106,6 +106,18 @@ func (b *Bot) handleSweeperComponent(s *discordgo.Session, i *discordgo.Interact
 				Flags:      discordgo.MessageFlagsIsComponentsV2,
 			},
 		})
+	case "select_type":
+		if vals := i.MessageComponentData().Values; len(vals) > 0 {
+			state.JobTypeValue = vals[0]
+		}
+		b.saveCriteriaState(i.Message.ID, state)
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseUpdateMessage,
+			Data: &discordgo.InteractionResponseData{
+				Components: buildJobSweeperV2Components(state, ""),
+				Flags:      discordgo.MessageFlagsIsComponentsV2,
+			},
+		})
 	case "trigger_job_search":
 		b.handleSearchJobs(s, i, state)
 	}
@@ -125,6 +137,7 @@ func (b *Bot) handleSearchJobs(s *discordgo.Session, i *discordgo.InteractionCre
 		Level:     mapLevelToQuery(state.LevelValue),
 		Location:  mapLocationToQuery(state.LocationValue),
 		Expertise: mapPositionToQuery(state.PositionValue),
+		JobType:   mapJobTypeToQuery(state.JobTypeValue),
 		AIEnabled: b.cfg.GroqAPIKey != "",
 	}
 
@@ -292,4 +305,17 @@ func mapPositionToQuery(v string) string {
 		return ""
 	}
 	return v
+}
+
+func mapJobTypeToQuery(v string) string {
+	switch v {
+	case "full_time":
+		return "Full-time"
+	case "part_time":
+		return "Part-time"
+	case "contract":
+		return "Contract"
+	default:
+		return ""
+	}
 }

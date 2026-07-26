@@ -15,6 +15,7 @@ func defaultCriteriaState() criteriaState {
 		PositionValue: "all",
 		LevelValue:    "all",
 		LocationValue: "all",
+		JobTypeValue:  "all",
 	}
 }
 
@@ -22,11 +23,13 @@ func buildJobSweeperEmbed(state criteriaState, notice string) *discordgo.Message
 	positionLabel := positionLabelFromValue(state.PositionValue)
 	levelLabel := levelLabelFromValue(state.LevelValue)
 	locationLabel := locationLabelFromValue(state.LocationValue)
+	jobTypeLabel := jobTypeLabelFromValue(state.JobTypeValue)
 
 	desc := "### Filter Configuration\n" +
 		fmt.Sprintf("> Position: `%s`\n", positionLabel) +
 		fmt.Sprintf("> Experience: `%s`\n", levelLabel) +
-		fmt.Sprintf("> Location: `%s`", locationLabel)
+		fmt.Sprintf("> Location: `%s`\n", locationLabel) +
+		fmt.Sprintf("> Job Type: `%s`", jobTypeLabel)
 
 	if notice != "" {
 		desc += "\n\n*" + notice + "*"
@@ -43,6 +46,7 @@ func buildJobSweeperV2Components(state criteriaState, notice string) []discordgo
 	positionLabel := positionLabelFromValue(state.PositionValue)
 	levelLabel := levelLabelFromValue(state.LevelValue)
 	locationLabel := locationLabelFromValue(state.LocationValue)
+	jobTypeLabel := jobTypeLabelFromValue(state.JobTypeValue)
 
 	header := "## Job Sweeper\n" +
 		"Select filters below to find job listings."
@@ -96,6 +100,18 @@ func buildJobSweeperV2Components(state criteriaState, notice string) []discordgo
 		}
 	}
 
+	typeOptions := []discordgo.SelectMenuOption{
+		{Label: "All Job Types", Value: "all"},
+		{Label: "Full-time", Value: "full_time"},
+		{Label: "Part-time", Value: "part_time"},
+		{Label: "Contract", Value: "contract"},
+	}
+	for i := range typeOptions {
+		if typeOptions[i].Value == state.JobTypeValue {
+			typeOptions[i].Default = true
+		}
+	}
+
 	positionSelect := discordgo.SelectMenu{
 		CustomID:    "select_position",
 		Placeholder: "Position: " + positionLabel,
@@ -114,6 +130,12 @@ func buildJobSweeperV2Components(state criteriaState, notice string) []discordgo
 		Options:     locationOptions,
 	}
 
+	typeSelect := discordgo.SelectMenu{
+		CustomID:    "select_type",
+		Placeholder: "Job Type: " + jobTypeLabel,
+		Options:     typeOptions,
+	}
+
 	searchBtn := discordgo.Button{
 		CustomID: "trigger_job_search",
 		Label:    "Search Jobs",
@@ -128,6 +150,7 @@ func buildJobSweeperV2Components(state criteriaState, notice string) []discordgo
 			discordgo.ActionsRow{Components: []discordgo.MessageComponent{positionSelect}},
 			discordgo.ActionsRow{Components: []discordgo.MessageComponent{levelSelect}},
 			discordgo.ActionsRow{Components: []discordgo.MessageComponent{locationSelect}},
+			discordgo.ActionsRow{Components: []discordgo.MessageComponent{typeSelect}},
 			discordgo.ActionsRow{Components: []discordgo.MessageComponent{searchBtn}},
 		},
 	}
@@ -193,6 +216,19 @@ func locationLabelFromValue(v string) string {
 		return "Ho Chi Minh"
 	default:
 		return "All Locations"
+	}
+}
+
+func jobTypeLabelFromValue(v string) string {
+	switch v {
+	case "full_time":
+		return "Full-time"
+	case "part_time":
+		return "Part-time"
+	case "contract":
+		return "Contract"
+	default:
+		return "All Job Types"
 	}
 }
 
