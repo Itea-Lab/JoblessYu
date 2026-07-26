@@ -1,4 +1,0 @@
-python-jobspy
-python-dotenv
-pandas
-psycopg[binary]
