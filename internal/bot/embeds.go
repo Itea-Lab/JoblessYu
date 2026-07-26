@@ -69,7 +69,6 @@ func buildJobSweeperV2Components(state criteriaState, notice string) []discordgo
 		{Label: "Systems & Network", Value: "systems_network"},
 		{Label: "Management & Executive", Value: "management"},
 		{Label: "Design & UX", Value: "design_ux"},
-		{Label: "Consulting & Sales", Value: "consulting_sales"},
 	}
 	for i := range positionOptions {
 		if positionOptions[i].Value == state.PositionValue {
@@ -189,8 +188,6 @@ func positionLabelFromValue(v string) string {
 		return "Management & Executive"
 	case "design_ux":
 		return "Design & UX"
-	case "consulting_sales":
-		return "Consulting & Sales"
 	default:
 		return "All Positions"
 	}

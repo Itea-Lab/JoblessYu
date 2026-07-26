@@ -22,7 +22,7 @@ func TestDetectExpertise(t *testing.T) {
 		{"ux designer", "UX/UI Designer", "Figma and user research", "design_ux"},
 		{"security", "Security Engineer", "Penetration testing and SOC", "support_security"},
 		{"architect", "Solution Architect", "Enterprise architecture design", "architecture"},
-		{"consultant", "IT Consultant", "Pre-sales technical consulting", "consulting_sales"},
+		{"consultant", "IT Consultant", "Pre-sales technical consulting", ExpertiseUnknown},
 		// False-positive regression tests (word-boundary fixes H1/H2)
 		{"html not ml", "HTML Developer", "Build websites with HTML and CSS", "web_dev"},
 		{"linux not ux", "Systems Engineer", "Work with Linux servers", ExpertiseUnknown},

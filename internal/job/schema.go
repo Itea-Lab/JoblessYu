@@ -6,7 +6,7 @@ package job
 const jobMetaSchemaDescription = `{
   "level":     "string — one of: Intern, Fresher, Junior, Senior, Unknown",
   "type":      "string — one of: Full-time, Part-time, Unknown",
-  "expertise": "string — one of: management, web_dev, mobile_game, enterprise, architecture, data_ai, cloud_devops, systems_network, support_security, embedded_iot, testing_qa, design_ux, consulting_sales, unknown",
+  "expertise": "string — one of: management, web_dev, mobile_game, enterprise, architecture, data_ai, cloud_devops, systems_network, support_security, embedded_iot, testing_qa, design_ux, unknown",
   "tags":      "object — category name → array of canonical tag strings. Categories: Cloud, IaC, Pipeline, Containers, Security, Languages, Data/DB, AI. Empty object {} if no tags found.",
   "salary":    "string — raw salary range if mentioned, else empty string",
   "remote":    "boolean — true only if JD explicitly says remote/work from home/hybrid",

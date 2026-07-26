@@ -212,14 +212,24 @@ func (b *Bot) handlePaginationComponent(s *discordgo.Session, i *discordgo.Inter
 	b.cacheLock.RUnlock()
 	jobs := cached.jobs
 	if !ok || len(jobs) == 0 {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "This job list has expired. Please run /jobs again.",
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		})
-		return
+		// Self-healing fallback: If cache expired or bot was restarted, re-fetch active jobs from DB
+		ctx := context.Background()
+		var err error
+		jobs, err = b.jobService.FetchAndProcessJobs(ctx, job.JobQuery{AIEnabled: b.cfg.GroqAPIKey != ""})
+		if err != nil || len(jobs) == 0 {
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "This job list has expired. Please run /jobs again.",
+					Flags:   discordgo.MessageFlagsEphemeral,
+				},
+			})
+			return
+		}
+		// Save back to cache for subsequent pagination clicks
+		b.cacheLock.Lock()
+		b.jobsCache[cacheKey] = cachedJobs{jobs: jobs, insertedAt: time.Now()}
+		b.cacheLock.Unlock()
 	}
 
 	page := 1

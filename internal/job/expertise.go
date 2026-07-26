@@ -80,11 +80,6 @@ var ExpertiseCategories = []ExpertiseCategory{
 		Label:    "Design & UX",
 		Keywords: []string{"ux", "ui designer", "product designer", "graphic designer", "figma", "ux/ui", "user experience", "user interface"},
 	},
-	{
-		Value:    "consulting_sales",
-		Label:    "Consulting & Sales",
-		Keywords: []string{"consultant", "pre-sales", "presales", "technical account", "solution consultant", "it consulting"},
-	},
 }
 
 // ExpertiseLabelMap maps DB values to display labels for the Discord UI.
