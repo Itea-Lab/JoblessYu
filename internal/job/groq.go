@@ -254,6 +254,25 @@ func (g *GroqExtractor) callGroq(ctx context.Context, systemMsg, userMsg, title,
 			meta.Tags[cat] = filtered
 		}
 	}
+	// Validate and normalize Type. Allowed values: Full-time, Part-time, Unknown.
+	switch strings.ToLower(strings.TrimSpace(meta.Type)) {
+	case "fulltime", "full-time", "full time":
+		meta.Type = "Full-time"
+	case "parttime", "part-time", "part time":
+		meta.Type = "Part-time"
+	case "unknown", "":
+		meta.Type = "Unknown"
+	default:
+		// Invalid choice (e.g. "Internship" or non-standard output).
+		// Fall back to regex detection on title + description.
+		regexType := NewRegexExtractor().detectType(strings.ToLower(title + "\n" + description))
+		if regexType != "" {
+			meta.Type = regexType
+		} else {
+			meta.Type = "Unknown"
+		}
+	}
+
 	// Validate expertise: AI may return non-canonical values (e.g. "security"
 	// instead of "support_security"). Fall back to keyword detection.
 	if meta.Expertise == "" || !IsValidExpertise(meta.Expertise) {

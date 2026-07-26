@@ -23,7 +23,7 @@ type cachedJobs struct {
 }
 
 type criteriaState struct {
-	PositionTitle string
+	PositionValue string
 	LevelValue    string
 	LocationValue string
 }

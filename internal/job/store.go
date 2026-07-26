@@ -2,10 +2,13 @@ package job
 
 import (
 	"context"
+	"crypto/md5"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -50,6 +53,17 @@ var (
 	}()
 )
 
+var nonAlphaNumRe = regexp.MustCompile(`[^\w]+`)
+
+func ComputeDedupHash(company, title, jobType string) string {
+	normComp := strings.TrimSpace(nonAlphaNumRe.ReplaceAllString(strings.ToLower(company), ""))
+	normTitle := strings.TrimSpace(nonAlphaNumRe.ReplaceAllString(strings.ToLower(title), ""))
+	normType := strings.TrimSpace(nonAlphaNumRe.ReplaceAllString(strings.ToLower(jobType), ""))
+	raw := normComp + ":" + normTitle + ":" + normType
+	hash := md5.Sum([]byte(raw))
+	return hex.EncodeToString(hash[:])
+}
+
 func NewJobRepository(ctx context.Context, dbURL string) (*JobRepository, error) {
 	cfg, err := pgxpool.ParseConfig(dbURL)
 	if err != nil {
@@ -91,7 +105,7 @@ func (r *JobRepository) Close() {
 func (r *JobRepository) FetchRawJobs(ctx context.Context, q JobQuery) ([]JobEntry, error) {
 	args := []interface{}{}
 	argIdx := 1
-	query := `SELECT id, COALESCE(title, ''), COALESCE(company, ''), COALESCE(location, ''), job_url, COALESCE(NULLIF(job_type_normalized, ''), COALESCE(job_type, '')), COALESCE(description, ''), COALESCE(level, ''), ai_processed_at, COALESCE(tags, '{}'::jsonb), COALESCE(summary, ''), COALESCE(salary, ''), COALESCE(remote, false), COALESCE(ai_model, ''), COALESCE(expertise, '') FROM jobs`
+	query := `SELECT id, COALESCE(title, ''), COALESCE(company, ''), COALESCE(location, ''), job_url, COALESCE(NULLIF(job_type_normalized, ''), COALESCE(job_type, '')), COALESCE(description, ''), COALESCE(level, ''), ai_processed_at, COALESCE(tags, '{}'::jsonb), COALESCE(summary, ''), COALESCE(salary, ''), COALESCE(remote, false), COALESCE(ai_model, ''), COALESCE(expertise, ''), COALESCE(site, ''), COALESCE(alternate_urls, '[]'::jsonb) FROM jobs`
 
 	// Only show AI-enriched jobs — un-enriched jobs are hidden from users
 	// until the daily batch enrichment processes them.
@@ -176,11 +190,11 @@ func (r *JobRepository) FetchRawJobs(ctx context.Context, q JobQuery) ([]JobEntr
 	var jobs []JobEntry
 	for rows.Next() {
 		var id int64
-		var title, company, loc, url, jobTypeDB, description, level, summary, salary, aiModel, expertise string
+		var title, company, loc, url, jobTypeDB, description, level, summary, salary, aiModel, expertise, site string
 		var remote bool
 		var aiProcessedAt sql.NullTime
-		var tagsJSON []byte
-		if err := rows.Scan(&id, &title, &company, &loc, &url, &jobTypeDB, &description, &level, &aiProcessedAt, &tagsJSON, &summary, &salary, &remote, &aiModel, &expertise); err != nil {
+		var tagsJSON, altURLsJSON []byte
+		if err := rows.Scan(&id, &title, &company, &loc, &url, &jobTypeDB, &description, &level, &aiProcessedAt, &tagsJSON, &summary, &salary, &remote, &aiModel, &expertise, &site, &altURLsJSON); err != nil {
 			log.Printf("job repository: scan error (skipping row): %v", err)
 			continue
 		}
@@ -192,22 +206,47 @@ func (r *JobRepository) FetchRawJobs(ctx context.Context, q JobQuery) ([]JobEntr
 			}
 		}
 
+		var altURLs []JobSource
+		if len(altURLsJSON) > 0 {
+			if err := json.Unmarshal(altURLsJSON, &altURLs); err != nil {
+				log.Printf("job repository: altURLs parse error (job %d): %v", id, err)
+			}
+		}
+
+		company = strings.TrimSpace(company)
+		if idx := strings.Index(company, "\n"); idx >= 0 {
+			company = strings.TrimSpace(company[:idx])
+		}
+		if len(company) > 100 {
+			company = company[:100]
+		}
+		loc = strings.TrimSpace(loc)
+		if idx := strings.Index(loc, "\n"); idx >= 0 {
+			loc = strings.TrimSpace(loc[:idx])
+		}
+		if len(loc) > 80 {
+			loc = loc[:80]
+		}
+
 		entry := JobEntry{
-			ID:          id,
-			Title:       title,
-			Company:     company,
-			Location:    loc,
-			URL:         url,
-			Description: description,
-			Type:        jobTypeDB,
-			Level:       level,
-			Expertise:   expertise,
-			AIProcessed: aiProcessedAt.Valid,
-			Summary:     summary,
-			Salary:      salary,
-			Remote:      remote,
-			AIModel:     aiModel,
-			Tags:        tags,
+			ID:            id,
+			Title:         title,
+			Company:       company,
+			Location:      loc,
+			URL:           url,
+			Site:          site,
+			Description:   description,
+			Type:          jobTypeDB,
+			Level:         level,
+			Expertise:     expertise,
+			AIProcessed:   aiProcessedAt.Valid,
+			Summary:       summary,
+			Salary:        salary,
+			Remote:        remote,
+			AIModel:       aiModel,
+			Tags:          tags,
+			AlternateURLs: altURLs,
+			DedupHash:     ComputeDedupHash(company, title, jobTypeDB),
 		}
 		if aiProcessedAt.Valid {
 			entry.AIProcessedAt = aiProcessedAt.Time
@@ -306,9 +345,62 @@ func (r *JobRepository) UpsertJobs(ctx context.Context, jobs []JobEntry) (int, e
 
 	inserted := 0
 	for _, j := range jobs {
-		_, err := r.pool.Exec(ctx,
-			`INSERT INTO jobs (job_id, site, job_url, title, company, location, job_type, description, remote)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		comp := strings.TrimSpace(j.Company)
+		if idx := strings.Index(comp, "\n"); idx >= 0 {
+			comp = strings.TrimSpace(comp[:idx])
+		}
+		if len(comp) > 100 {
+			comp = comp[:100]
+		}
+		loc := strings.TrimSpace(j.Location)
+		if idx := strings.Index(loc, "\n"); idx >= 0 {
+			loc = strings.TrimSpace(loc[:idx])
+		}
+		if len(loc) > 80 {
+			loc = loc[:80]
+		}
+
+		dedupHash := ComputeDedupHash(comp, j.Title, j.Type)
+
+		// Check for cross-site duplicate within 7 days
+		var existingID int64
+		var existingSite, existingURL string
+		var existingAltJSON []byte
+		err := r.pool.QueryRow(ctx,
+			`SELECT id, site, job_url, COALESCE(alternate_urls, '[]'::jsonb)
+			 FROM jobs
+			 WHERE dedup_hash = $1 AND fetched_at >= NOW() - INTERVAL '7 days'
+			 LIMIT 1`,
+			dedupHash,
+		).Scan(&existingID, &existingSite, &existingURL, &existingAltJSON)
+
+		if err == nil && existingID > 0 {
+			var altSources []JobSource
+			_ = json.Unmarshal(existingAltJSON, &altSources)
+
+			alreadyPresent := (j.URL == existingURL)
+			for _, src := range altSources {
+				if src.URL == j.URL {
+					alreadyPresent = true
+					break
+				}
+			}
+
+			if !alreadyPresent {
+				altSources = append(altSources, JobSource{Site: j.Site, URL: j.URL})
+				newAltJSON, _ := json.Marshal(altSources)
+				_, _ = r.pool.Exec(ctx,
+					`UPDATE jobs SET alternate_urls = $1, fetched_at = NOW() WHERE id = $2`,
+					newAltJSON, existingID,
+				)
+			}
+			inserted++
+			continue
+		}
+
+		_, err = r.pool.Exec(ctx,
+			`INSERT INTO jobs (job_id, site, job_url, title, company, location, job_type, description, remote, dedup_hash)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 			 ON CONFLICT (site, job_url) DO UPDATE SET
 			   title       = EXCLUDED.title,
 			   company     = EXCLUDED.company,
@@ -316,6 +408,7 @@ func (r *JobRepository) UpsertJobs(ctx context.Context, jobs []JobEntry) (int, e
 			   job_type    = EXCLUDED.job_type,
 			   description = EXCLUDED.description,
 			   fetched_at  = NOW(),
+			   dedup_hash  = EXCLUDED.dedup_hash,
 			   remote      = jobs.remote OR EXCLUDED.remote,
 			   ai_processed_at     = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
 			                              THEN NULL ELSE jobs.ai_processed_at END,
@@ -333,7 +426,7 @@ func (r *JobRepository) UpsertJobs(ctx context.Context, jobs []JobEntry) (int, e
 			                              THEN NULL ELSE jobs.ai_model END,
 			   expertise           = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
 			                              THEN NULL ELSE jobs.expertise END`,
-			j.URL, j.Site, j.URL, j.Title, j.Company, j.Location, j.Type, j.Description, j.Remote,
+			j.URL, j.Site, j.URL, j.Title, comp, loc, j.Type, j.Description, j.Remote, dedupHash,
 		)
 		if err != nil {
 			log.Printf("UpsertJobs: error on %s (skipping): %v", j.URL, err)

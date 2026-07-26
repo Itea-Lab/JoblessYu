@@ -24,7 +24,7 @@ DAILY 5:00 AM ICT (automated cron)
     │      └── Pagination with Prev/Next buttons
     │
     └── 4. WEEKLY CLEANUP (Monday 4:55 AM)
-           └── Auto-delete jobs older than 60 days
+           └── Auto-delete jobs older than 30 days
 ```
 
 ## Expertise Filter (backend)
@@ -83,7 +83,7 @@ DISCORD_GUILD_ID=your_guild_id
 DATABASE_URL=your_neon_postgres_connection_string
 GROQ_API_KEY=your_groq_api_key
 AI_MODEL=llama-3.1-8b-instant
-JOB_RETENTION_DAYS=60
+JOB_RETENTION_DAYS=30
 ```
 
 ### 4. Database migrations
@@ -123,7 +123,7 @@ make bot
    - Pagination with Prev/Next buttons
 
 4. **Weekly cleanup (Monday 4:55 AM)**
-   - Jobs older than 60 days auto-deleted to keep DB lean (Neon free tier)
+   - Jobs older than 30 days auto-deleted to keep DB lean (Neon free tier)
 
 ## Make commands
 

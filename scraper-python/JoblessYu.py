@@ -1,7 +1,11 @@
+import hashlib
+import json
 import os
-from jobspy import scrape_jobs
-from dotenv import load_dotenv
+import re
+
 import pandas as pd
+from dotenv import load_dotenv
+from jobspy import scrape_jobs
 
 load_dotenv()
 
@@ -13,6 +17,14 @@ except ImportError:
 
 def _to_nullable(value):
     return None if pd.isna(value) else value
+
+
+def compute_dedup_hash(company, title, job_type):
+    norm_comp = re.sub(r'[^\w]+', '', (company or '').lower()).strip()
+    norm_title = re.sub(r'[^\w]+', '', (title or '').lower()).strip()
+    norm_type = re.sub(r'[^\w]+', '', (job_type or '').lower()).strip()
+    raw = f"{norm_comp}:{norm_title}:{norm_type}"
+    return hashlib.md5(raw.encode('utf-8')).hexdigest()
 
 
 def save_jobs_to_neon(jobs_df):
@@ -37,13 +49,26 @@ def save_jobs_to_neon(jobs_df):
         job_type TEXT,
         description TEXT,
         fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        dedup_hash TEXT,
+        alternate_urls JSONB DEFAULT '[]'::jsonb,
         UNIQUE (site, job_url)
     );
     """
 
+    check_dedup_sql = """
+    SELECT id, site, job_url, COALESCE(alternate_urls, '[]'::jsonb)
+    FROM jobs
+    WHERE dedup_hash = %s AND fetched_at >= NOW() - INTERVAL '7 days'
+    LIMIT 1;
+    """
+
+    update_alt_sql = """
+    UPDATE jobs SET alternate_urls = %s, fetched_at = NOW() WHERE id = %s;
+    """
+
     insert_sql = """
-    INSERT INTO jobs (job_id, site, job_url, title, company, location, job_type, description)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+    INSERT INTO jobs (job_id, site, job_url, title, company, location, job_type, description, dedup_hash)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (site, job_url)
     DO UPDATE SET
         job_id = EXCLUDED.job_id,
@@ -53,6 +78,7 @@ def save_jobs_to_neon(jobs_df):
         job_type = EXCLUDED.job_type,
         description = EXCLUDED.description,
         fetched_at = NOW(),
+        dedup_hash = EXCLUDED.dedup_hash,
         ai_processed_at = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
                                 THEN NULL ELSE jobs.ai_processed_at END,
         level = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
@@ -73,30 +99,42 @@ def save_jobs_to_neon(jobs_df):
                          THEN NULL ELSE jobs.expertise END;
     """
 
-    rows = [
-        (
-            _to_nullable(row["id"]),
-            row["site"],
-            row["job_url"],
-            _to_nullable(row["title"]),
-            _to_nullable(row["company"]),
-            _to_nullable(row["location"]),
-            _to_nullable(row["job_type"]),
-            _to_nullable(row["description"]),
-        )
-        for _, row in jobs_df.iterrows()
-    ]
-
     print("Connecting to NeonDB...", flush=True)
+    saved_count = 0
     try:
         with psycopg.connect(database_url, connect_timeout=10) as conn:
             print("Connected to NeonDB. Creating table...", flush=True)
             with conn.cursor() as cur:
                 cur.execute(create_table_sql)
                 print("Table ready. Saving data...", flush=True)
-                cur.executemany(insert_sql, rows)
+                for _, row in jobs_df.iterrows():
+                    raw_id = _to_nullable(row["id"])
+                    site = row["site"]
+                    job_url = row["job_url"]
+                    title = _to_nullable(row["title"])
+                    company = _to_nullable(row["company"])
+                    location = _to_nullable(row["location"])
+                    job_type = _to_nullable(row["job_type"])
+                    description = _to_nullable(row["description"])
+
+                    dedup_hash = compute_dedup_hash(company, title, job_type)
+
+                    cur.execute(check_dedup_sql, (dedup_hash,))
+                    existing = cur.fetchone()
+                    if existing:
+                        existing_id, _existing_site, existing_url, alt_json = existing
+                        alt_list = alt_json if isinstance(alt_json, list) else json.loads(alt_json)
+                        already_present = (job_url == existing_url) or any(s.get("url") == job_url for s in alt_list)
+                        if not already_present:
+                            alt_list.append({"site": site, "url": job_url})
+                            cur.execute(update_alt_sql, (json.dumps(alt_list), existing_id))
+                        saved_count += 1
+                        continue
+
+                    cur.execute(insert_sql, (raw_id, site, job_url, title, company, location, job_type, description, dedup_hash))
+                    saved_count += 1
             conn.commit()
-        print(f"{len(rows)} jobs upserted to Neon.", flush=True)
+        print(f"{saved_count} jobs upserted to Neon.", flush=True)
     except Exception as e:
         print("Error connecting to NeonDB:", e, flush=True)
         raise
@@ -106,9 +144,10 @@ def JobScan():
     print("JoblessYu is looking for jobs =w=")
 
     # Scrape jobs using JobSpy — daily, 20 per site (20 Indeed + 20 LinkedIn).
+    # Comprehensive search query covering all 13 tech expertise categories.
     jobs = scrape_jobs(
         site_name=["indeed", "linkedin"],
-        search_term="IT",
+        search_term="software OR developer OR IT OR engineer OR data OR devops OR QA OR security OR architect OR designer",
         location="vietnam",
         results_wanted=20,
         hours_old=24,
@@ -123,6 +162,17 @@ def JobScan():
     available_filters = ["id", "site", "job_url", "title",
                          "company", "location", "job_type", "description"]
     jobs = jobs[available_filters]
+
+    # Filter out empty or invalid jobs (missing title or description < 50 chars)
+    jobs = jobs.dropna(subset=["title", "description"])
+    jobs["title"] = jobs["title"].astype(str).str.strip()
+    jobs["description"] = jobs["description"].astype(str).str.strip()
+    jobs = jobs[(jobs["title"].str.len() > 0) & (jobs["description"].str.len() >= 50)]
+
+    if jobs.empty:
+        print("There are no valid jobs at the moment :c")
+        return
+
     save_jobs_to_neon(jobs)
 
 

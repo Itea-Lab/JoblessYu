@@ -1,29 +1,32 @@
-# Stage 1: Build
-FROM golang:alpine AS builder
+# Stage 1: Build Go binary
+FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
-# Copy go.mod and go.sum first
+# Copy go.mod and go.sum first for caching
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy all source code
+# Copy source code
 COPY . .
 
-# CGO_ENABLED=0: Create a static binary (statically linked), independent of external C libraries
-# GOOS=linux: Ensure the build file runs on the Linux operating system
-# -ldflags="-w -s": Remove debug information to significantly reduce file size
+# Build static Go binary
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o joblessyu-bot ./cmd/bot
 
-# Stage 2: Final Image
+# Stage 2: Final Runtime Image (Go + Python + JobSpy)
 FROM alpine:latest
 
-# Install SSL/TLS certificates and time zone
-RUN apk --no-cache add ca-certificates tzdata
+# Install certificates, timezone, python3, and py3-pip
+RUN apk add --no-cache ca-certificates tzdata python3 py3-pip
 
 WORKDIR /app
 
-# Copy binary from build stage
+# Copy python dependencies & set up venv
+COPY scraper-python/ /app/scraper-python/
+RUN python3 -m venv /app/scraper-python/.venv && \
+    /app/scraper-python/.venv/bin/pip install --no-cache-dir -r /app/scraper-python/requirements.txt
+
+# Copy static Go binary from builder
 COPY --from=builder /app/joblessyu-bot .
 
 # Run the bot

@@ -12,85 +12,123 @@ import (
 
 func defaultCriteriaState() criteriaState {
 	return criteriaState{
-		PositionTitle: "Backend Engineer",
-		LevelValue:    "junior",
-		LocationValue: "hcm",
+		PositionValue: "all",
+		LevelValue:    "all",
+		LocationValue: "all",
 	}
 }
 
 func buildJobSweeperEmbed(state criteriaState, notice string) *discordgo.MessageEmbed {
+	positionLabel := positionLabelFromValue(state.PositionValue)
 	levelLabel := levelLabelFromValue(state.LevelValue)
 	locationLabel := locationLabelFromValue(state.LocationValue)
 
-	desc := "**Current Active Filters:**\n\n" +
-		fmt.Sprintf("• **Position:** `%s` *(Click button below to change)*\n", state.PositionTitle) +
-		fmt.Sprintf("• **Level:** `%s`\n", levelLabel) +
-		fmt.Sprintf("• **Location:** `%s`", locationLabel)
+	desc := "### Filter Configuration\n" +
+		fmt.Sprintf("> Position: `%s`\n", positionLabel) +
+		fmt.Sprintf("> Experience: `%s`\n", levelLabel) +
+		fmt.Sprintf("> Location: `%s`", locationLabel)
+
 	if notice != "" {
-		desc += "\n\n" + notice
+		desc += "\n\n*" + notice + "*"
 	}
 
 	return &discordgo.MessageEmbed{
-		Title:       "🔍 Job Sweeper Criteria",
+		Title:       "Job Sweeper",
 		Description: desc,
 		Color:       0x5865F2,
 	}
 }
 
 func buildJobSweeperV2Components(state criteriaState, notice string) []discordgo.MessageComponent {
+	positionLabel := positionLabelFromValue(state.PositionValue)
 	levelLabel := levelLabelFromValue(state.LevelValue)
 	locationLabel := locationLabelFromValue(state.LocationValue)
 
-	criteria := "**Current Active Filters:**\n\n" +
-		fmt.Sprintf("• **Position:** `%s` *(Click button below to change)*\n", state.PositionTitle) +
-		fmt.Sprintf("• **Level:** `%s`\n", levelLabel) +
-		fmt.Sprintf("• **Location:** `%s`", locationLabel)
+	header := "## Job Sweeper\n" +
+		"Select filters below to find job listings."
+
 	if notice != "" {
-		criteria += "\n\n" + notice
+		header += "\n\n*" + notice + "*"
+	}
+
+	positionOptions := []discordgo.SelectMenuOption{
+		{Label: "All Positions", Value: "all"},
+		{Label: "Web Development", Value: "web_dev"},
+		{Label: "Cloud & DevOps", Value: "cloud_devops"},
+		{Label: "Data & AI", Value: "data_ai"},
+		{Label: "Mobile & Game", Value: "mobile_game"},
+		{Label: "Testing & QA", Value: "testing_qa"},
+		{Label: "IT Support & Security", Value: "support_security"},
+		{Label: "Software Architecture", Value: "architecture"},
+		{Label: "Embedded & IoT", Value: "embedded_iot"},
+		{Label: "Enterprise Systems", Value: "enterprise"},
+		{Label: "Systems & Network", Value: "systems_network"},
+		{Label: "Management & Executive", Value: "management"},
+		{Label: "Design & UX", Value: "design_ux"},
+		{Label: "Consulting & Sales", Value: "consulting_sales"},
+	}
+	for i := range positionOptions {
+		if positionOptions[i].Value == state.PositionValue {
+			positionOptions[i].Default = true
+		}
+	}
+
+	levelOptions := []discordgo.SelectMenuOption{
+		{Label: "All Levels", Value: "all"},
+		{Label: "Intern", Value: "intern", Description: "Entry level & internship roles"},
+		{Label: "Junior", Value: "junior", Description: "1-3 years of experience"},
+		{Label: "Senior", Value: "senior", Description: "5+ years & leadership roles"},
+	}
+	for i := range levelOptions {
+		if levelOptions[i].Value == state.LevelValue {
+			levelOptions[i].Default = true
+		}
+	}
+
+	locationOptions := []discordgo.SelectMenuOption{
+		{Label: "All Locations", Value: "all"},
+		{Label: "Ho Chi Minh", Value: "hcm"},
+		{Label: "Ha Noi", Value: "hanoi"},
+	}
+	for i := range locationOptions {
+		if locationOptions[i].Value == state.LocationValue {
+			locationOptions[i].Default = true
+		}
+	}
+
+	positionSelect := discordgo.SelectMenu{
+		CustomID:    "select_position",
+		Placeholder: "Position: " + positionLabel,
+		Options:     positionOptions,
 	}
 
 	levelSelect := discordgo.SelectMenu{
 		CustomID:    "select_level",
-		Placeholder: "Choose Experience Level (Optional)",
-		Options: []discordgo.SelectMenuOption{
-			{Label: "Intern", Value: "intern", Description: "Entry level & internship roles", Emoji: &discordgo.ComponentEmoji{Name: "🌱"}},
-			{Label: "Junior", Value: "junior", Description: "1-3 years of experience", Emoji: &discordgo.ComponentEmoji{Name: "💻"}},
-			{Label: "Senior", Value: "senior", Description: "5+ years & leadership roles", Emoji: &discordgo.ComponentEmoji{Name: "⚡"}},
-		},
+		Placeholder: "Level: " + levelLabel,
+		Options:     levelOptions,
 	}
 
 	locationSelect := discordgo.SelectMenu{
 		CustomID:    "select_location",
-		Placeholder: "Choose Location (Optional)",
-		Options: []discordgo.SelectMenuOption{
-			{Label: "Ho Chi Minh", Value: "hcm", Emoji: &discordgo.ComponentEmoji{Name: "🏙️"}},
-			{Label: "Ha Noi", Value: "hanoi", Emoji: &discordgo.ComponentEmoji{Name: "🏛️"}},
-			{Label: "Both / Remote", Value: "all", Emoji: &discordgo.ComponentEmoji{Name: "🌐"}},
-		},
-	}
-
-	setPositionBtn := discordgo.Button{
-		CustomID: "open_position_modal",
-		Label:    "Set Position Title",
-		Style:    discordgo.SecondaryButton,
-		Emoji:    &discordgo.ComponentEmoji{Name: "📝"},
+		Placeholder: "Location: " + locationLabel,
+		Options:     locationOptions,
 	}
 
 	searchBtn := discordgo.Button{
 		CustomID: "trigger_job_search",
 		Label:    "Search Jobs",
-		Style:    discordgo.SuccessButton,
-		Emoji:    &discordgo.ComponentEmoji{Name: "🚀"},
+		Style:    discordgo.PrimaryButton,
 	}
 
 	accentColor := 0x5865F2
 	container := discordgo.Container{
 		AccentColor: &accentColor,
 		Components: []discordgo.MessageComponent{
-			discordgo.TextDisplay{Content: "## 🔍 Job Sweeper Criteria\n" + criteria},
+			discordgo.TextDisplay{Content: header},
+			discordgo.ActionsRow{Components: []discordgo.MessageComponent{positionSelect}},
 			discordgo.ActionsRow{Components: []discordgo.MessageComponent{levelSelect}},
 			discordgo.ActionsRow{Components: []discordgo.MessageComponent{locationSelect}},
-			discordgo.ActionsRow{Components: []discordgo.MessageComponent{setPositionBtn, searchBtn}},
+			discordgo.ActionsRow{Components: []discordgo.MessageComponent{searchBtn}},
 		},
 	}
 
@@ -98,44 +136,39 @@ func buildJobSweeperV2Components(state criteriaState, notice string) []discordgo
 }
 
 func buildJobSweeperComponents() []discordgo.MessageComponent {
-	levelSelect := discordgo.SelectMenu{
-		CustomID:    "select_level",
-		Placeholder: "Choose Experience Level (Optional)",
-		Options: []discordgo.SelectMenuOption{
-			{Label: "Intern", Value: "intern", Description: "Entry level & internship roles", Emoji: &discordgo.ComponentEmoji{Name: "🌱"}},
-			{Label: "Junior", Value: "junior", Description: "1-3 years of experience", Emoji: &discordgo.ComponentEmoji{Name: "💻"}},
-			{Label: "Senior", Value: "senior", Description: "5+ years & leadership roles", Emoji: &discordgo.ComponentEmoji{Name: "⚡"}},
-		},
-	}
+	return buildJobSweeperV2Components(defaultCriteriaState(), "")
+}
 
-	locationSelect := discordgo.SelectMenu{
-		CustomID:    "select_location",
-		Placeholder: "Choose Location (Optional)",
-		Options: []discordgo.SelectMenuOption{
-			{Label: "Ho Chi Minh", Value: "hcm", Emoji: &discordgo.ComponentEmoji{Name: "🏙️"}},
-			{Label: "Ha Noi", Value: "hanoi", Emoji: &discordgo.ComponentEmoji{Name: "🏛️"}},
-			{Label: "Both / Remote", Value: "all", Emoji: &discordgo.ComponentEmoji{Name: "🌐"}},
-		},
-	}
-
-	setPositionBtn := discordgo.Button{
-		CustomID: "open_position_modal",
-		Label:    "Set Position Title",
-		Style:    discordgo.SecondaryButton,
-		Emoji:    &discordgo.ComponentEmoji{Name: "📝"},
-	}
-
-	searchBtn := discordgo.Button{
-		CustomID: "trigger_job_search",
-		Label:    "Search Jobs",
-		Style:    discordgo.SuccessButton,
-		Emoji:    &discordgo.ComponentEmoji{Name: "🚀"},
-	}
-
-	return []discordgo.MessageComponent{
-		discordgo.ActionsRow{Components: []discordgo.MessageComponent{levelSelect}},
-		discordgo.ActionsRow{Components: []discordgo.MessageComponent{locationSelect}},
-		discordgo.ActionsRow{Components: []discordgo.MessageComponent{setPositionBtn, searchBtn}},
+func positionLabelFromValue(v string) string {
+	switch v {
+	case "web_dev":
+		return "Web Development"
+	case "cloud_devops":
+		return "Cloud & DevOps"
+	case "data_ai":
+		return "Data & AI"
+	case "mobile_game":
+		return "Mobile & Game"
+	case "testing_qa":
+		return "Testing & QA"
+	case "support_security":
+		return "IT Support & Security"
+	case "architecture":
+		return "Software Architecture"
+	case "embedded_iot":
+		return "Embedded & IoT"
+	case "enterprise":
+		return "Enterprise Systems"
+	case "systems_network":
+		return "Systems & Network"
+	case "management":
+		return "Management & Executive"
+	case "design_ux":
+		return "Design & UX"
+	case "consulting_sales":
+		return "Consulting & Sales"
+	default:
+		return "All Positions"
 	}
 }
 
@@ -143,10 +176,12 @@ func levelLabelFromValue(v string) string {
 	switch v {
 	case "intern":
 		return "Intern"
+	case "junior":
+		return "Junior"
 	case "senior":
 		return "Senior"
 	default:
-		return "Junior"
+		return "All Levels"
 	}
 }
 
@@ -154,26 +189,32 @@ func locationLabelFromValue(v string) string {
 	switch v {
 	case "hanoi":
 		return "Ha Noi"
-	case "all":
-		return "Both / Remote"
-	default:
+	case "hcm":
 		return "Ho Chi Minh"
+	default:
+		return "All Locations"
 	}
 }
 
 func buildJobEmbed(j job.JobEntry, page, total int) *discordgo.MessageEmbed {
-	desc := fmt.Sprintf("• **Role:** %s\n• **Company:** %s\n• **Location:** %s", j.Title, j.Company, j.Location)
+	desc := fmt.Sprintf("### %s\n", j.Title) +
+		fmt.Sprintf("> Company: `%s`\n", j.Company) +
+		fmt.Sprintf("> Location: `%s`", j.Location)
 
-	tags := ""
+	if j.Salary != "" {
+		desc += fmt.Sprintf("\n> Salary: `%s`", j.Salary)
+	}
+	if j.Remote {
+		desc += "\n> Remote: `Yes`"
+	}
+
+	var tagPills []string
 	if j.Level != "" {
-		tags += fmt.Sprintf("`%s` ", j.Level)
+		tagPills = append(tagPills, fmt.Sprintf("`%s`", j.Level))
 	}
 	if j.Type != "" {
-		tags += fmt.Sprintf("`%s` ", j.Type)
+		tagPills = append(tagPills, fmt.Sprintf("`%s`", j.Type))
 	}
-
-	// Append detected skill/tool tags, grouped by category so the embed's
-	// Tags line stays readable (e.g. `Cloud: AWS IAM` `IaC: CloudFormation`).
 	if len(j.Tags) > 0 {
 		categories := make([]string, 0, len(j.Tags))
 		for cat := range j.Tags {
@@ -181,37 +222,32 @@ func buildJobEmbed(j job.JobEntry, page, total int) *discordgo.MessageEmbed {
 		}
 		sort.Strings(categories)
 		for _, cat := range categories {
-			tags += fmt.Sprintf("`%s: %s` ", cat, strings.Join(j.Tags[cat], " "))
+			tagPills = append(tagPills, fmt.Sprintf("`%s: %s`", cat, strings.Join(j.Tags[cat], " ")))
 		}
 	}
 
-	if tags = strings.TrimSpace(tags); tags != "" {
-		desc += fmt.Sprintf("\n• **Tags:** %s", tags)
+	if len(tagPills) > 0 {
+		desc += "\n\n**Tags:**\n" + strings.Join(tagPills, " ")
 	}
 
-	// AI-generated summary (only present when AI enriched the row).
 	if j.Summary != "" {
-		desc += fmt.Sprintf("\n• **Summary:** %s", j.Summary)
+		desc += fmt.Sprintf("\n\n**Overview:**\n%s", j.Summary)
 	}
 
-	// Salary range if AI extracted it.
-	if j.Salary != "" {
-		desc += fmt.Sprintf("\n• **Salary:** %s", j.Salary)
+	applyLinks := []string{fmt.Sprintf("[Apply on %s](%s)", strings.Title(j.Site), j.URL)}
+	for _, alt := range j.AlternateURLs {
+		if alt.URL != "" && alt.Site != "" {
+			applyLinks = append(applyLinks, fmt.Sprintf("[%s](%s)", strings.Title(alt.Site), alt.URL))
+		}
 	}
-
-	// Remote-eligible badge.
-	if j.Remote {
-		desc += "\n• **Remote:** ✅ Yes"
-	}
-
-	desc += fmt.Sprintf("\n• **Apply:** [Open job](%s)", j.URL)
+	desc += "\n\n" + strings.Join(applyLinks, " • ")
 
 	return &discordgo.MessageEmbed{
-		Title:       j.Company,
+		Title:       fmt.Sprintf("Job Listing (%d of %d)", page, total),
 		Description: desc,
 		Color:       0x5865F2,
 		Footer: &discordgo.MessageEmbedFooter{
-			Text: fmt.Sprintf("Page %d of %d", page, total),
+			Text: fmt.Sprintf("JoblessYu • Page %d of %d", page, total),
 		},
 	}
 }

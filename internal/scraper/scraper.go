@@ -80,8 +80,21 @@ func (m *ScraperManager) resolveScriptPath() string {
 	return filepath.Join("scraper-python", "JoblessYu.py")
 }
 
-// resolvePythonExe picks the first available Python interpreter on PATH.
+// resolvePythonExe picks the virtual environment Python interpreter if present,
+// otherwise falls back to system Python on PATH.
 func (m *ScraperManager) resolvePythonExe() string {
+	scriptDir := filepath.Dir(m.pythonScript)
+	for _, venvPath := range []string{
+		filepath.Join(scriptDir, ".venv", "bin", "python3"),
+		filepath.Join(scriptDir, ".venv", "bin", "python"),
+		filepath.Join(scriptDir, "venv", "bin", "python3"),
+		filepath.Join(scriptDir, "venv", "bin", "python"),
+	} {
+		if info, err := os.Stat(venvPath); err == nil && !info.IsDir() {
+			return venvPath
+		}
+	}
+
 	for _, name := range []string{"python3", "python", "py"} {
 		if path, err := exec.LookPath(name); err == nil {
 			return path

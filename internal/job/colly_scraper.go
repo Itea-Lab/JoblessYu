@@ -94,15 +94,44 @@ func (s *CollyScraper) ScrapeITViec(ctx context.Context) ([]JobEntry, error) {
 			return
 		}
 
-		title := cleanJobTitle(e.ChildText("h1"))
+		title := cleanJobTitle(strings.TrimSpace(e.DOM.Find("h1").First().Text()))
+		if title == "" {
+			title = cleanJobTitle(strings.TrimSpace(e.ChildText("h1")))
+		}
 
-		// Company: look for link to /companies/ page.
-		company := strings.TrimSpace(e.ChildText(`a[href*="/companies/"]`))
+		// Company: target employer link specifically.
+		// Avoid e.ChildText on broad selectors which concatenates all company links on the page.
+		var company string
+		if text := strings.TrimSpace(e.ChildText(".employer-name")); text != "" {
+			company = text
+		} else if text := strings.TrimSpace(e.ChildText(".job-details__sub-title")); text != "" {
+			company = text
+		} else if text := strings.TrimSpace(e.DOM.Find(`a[href*="/companies/"]`).First().Text()); text != "" {
+			company = text
+		}
+		if idx := strings.Index(company, "\n"); idx >= 0 {
+			company = strings.TrimSpace(company[:idx])
+		}
+		if len(company) > 100 {
+			company = company[:100]
+		}
 
 		// Location.
-		location := e.ChildText(".job-info .location")
-		if location == "" {
+		var location string
+		if text := strings.TrimSpace(e.ChildText(".job-info .location")); text != "" {
+			location = text
+		} else if text := strings.TrimSpace(e.DOM.Find(".location").First().Text()); text != "" {
+			location = text
+		} else if text := strings.TrimSpace(e.DOM.Find("[class*='location']").First().Text()); text != "" {
+			location = text
+		} else {
 			location = "Vietnam"
+		}
+		if idx := strings.Index(location, "\n"); idx >= 0 {
+			location = strings.TrimSpace(location[:idx])
+		}
+		if len(location) > 80 {
+			location = location[:80]
 		}
 
 		// Working model: ITViec shows "At office" / "Remote" / "Hybrid" as a badge.
@@ -124,20 +153,23 @@ func (s *CollyScraper) ScrapeITViec(ctx context.Context) ([]JobEntry, error) {
 		})
 		remote := strings.EqualFold(workingModel, "Remote") || strings.EqualFold(workingModel, "Hybrid")
 
-		// Description: try multiple selectors.
-		description := e.ChildText(".job-description")
-		if description == "" {
-			description = e.ChildText(".job-detail__description")
-		}
-		if description == "" {
-			description = e.ChildText("[class*='description']")
-		}
-		if description == "" {
-			description = e.ChildText("main")
+		// Description: try multiple targeted selectors.
+		var description string
+		for _, sel := range []string{
+			".job-description",
+			".job-detail__description",
+			".job-details__content",
+			".job-details",
+			"[class*='description']",
+		} {
+			if text := strings.TrimSpace(e.ChildText(sel)); len(text) >= 50 {
+				description = text
+				break
+			}
 		}
 
-		if title == "" && description == "" {
-			slog.Warn("colly: empty job page, skipping", "url", url)
+		if title == "" || len(description) < 50 {
+			slog.Warn("colly: invalid job page (missing title or description < 50 chars), skipping", "url", url)
 			return
 		}
 

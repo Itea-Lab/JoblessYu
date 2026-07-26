@@ -2,6 +2,11 @@ package job
 
 import "time"
 
+type JobSource struct {
+	Site string `json:"site"`
+	URL  string `json:"url"`
+}
+
 type JobEntry struct {
 	ID            int64 // DB row id; needed by repository.MarkAIProcessed. Zero when not from DB.
 	Title         string
@@ -11,7 +16,7 @@ type JobEntry struct {
 	Site          string // source: "indeed", "linkedin", "itviec"
 	Description   string
 	Level         string              // detected: Intern, Junior, Senior, Unknown
-	Type          string              // detected: Fulltime, Parttime (AI-normalized when available)
+	Type          string              // detected: Full-time, Part-time, Contract, Unknown (AI-normalized)
 	Expertise     string              // broad category: web_dev, cloud_devops, etc. (empty when un-enriched)
 	Tags          map[string][]string // detected skill/tool tags, keyed by category
 	AIProcessed   bool                // true when ai_processed_at IS NOT NULL in DB
@@ -20,6 +25,8 @@ type JobEntry struct {
 	Salary        string              // AI-extracted salary range (empty when not mentioned)
 	Remote        bool                // AI-detected remote-eligible flag
 	AIModel       string              // which extractor produced the result (e.g. "regex", "llama-3.1-8b-instant")
+	DedupHash     string              // MD5 hash for cross-site deduplication
+	AlternateURLs []JobSource         // cross-posted links from other sites
 }
 
 // JobMeta is the result of AI (or regex-fallback) extraction on a job

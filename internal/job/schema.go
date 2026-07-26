@@ -5,7 +5,7 @@ package job
 // shape alongside json_object response_format mode.
 const jobMetaSchemaDescription = `{
   "level":     "string — one of: Intern, Fresher, Junior, Senior, Unknown",
-  "type":      "string — one of: Fulltime, Parttime, Contract, Internship, Unknown",
+  "type":      "string — one of: Full-time, Part-time, Unknown",
   "expertise": "string — one of: management, web_dev, mobile_game, enterprise, architecture, data_ai, cloud_devops, systems_network, support_security, embedded_iot, testing_qa, design_ux, consulting_sales, unknown",
   "tags":      "object — category name → array of canonical tag strings. Categories: Cloud, IaC, Pipeline, Containers, Security, Languages, Data/DB, AI. Empty object {} if no tags found.",
   "salary":    "string — raw salary range if mentioned, else empty string",

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strings"
 	"time"
 
 	"JoblessYu/internal/job"
@@ -20,8 +19,6 @@ func (b *Bot) handleInteraction(s *discordgo.Session, i *discordgo.InteractionCr
 		}
 	case discordgo.InteractionMessageComponent:
 		b.handleMessageComponent(s, i)
-	case discordgo.InteractionModalSubmit:
-		b.handleModalSubmit(s, i)
 	}
 }
 
@@ -63,7 +60,7 @@ func (b *Bot) handleMessageComponent(s *discordgo.Session, i *discordgo.Interact
 	switch i.MessageComponentData().CustomID {
 	case "job_page_prev", "job_page_next":
 		b.handlePaginationComponent(s, i)
-	case "select_level", "select_location", "open_position_modal", "trigger_job_search":
+	case "select_position", "select_level", "select_location", "trigger_job_search":
 		b.handleSweeperComponent(s, i)
 	}
 }
@@ -73,6 +70,18 @@ func (b *Bot) handleSweeperComponent(s *discordgo.Session, i *discordgo.Interact
 	customID := i.MessageComponentData().CustomID
 
 	switch customID {
+	case "select_position":
+		if vals := i.MessageComponentData().Values; len(vals) > 0 {
+			state.PositionValue = vals[0]
+		}
+		b.saveCriteriaState(i.Message.ID, state)
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseUpdateMessage,
+			Data: &discordgo.InteractionResponseData{
+				Components: buildJobSweeperV2Components(state, ""),
+				Flags:      discordgo.MessageFlagsIsComponentsV2,
+			},
+		})
 	case "select_level":
 		if vals := i.MessageComponentData().Values; len(vals) > 0 {
 			state.LevelValue = vals[0]
@@ -97,71 +106,9 @@ func (b *Bot) handleSweeperComponent(s *discordgo.Session, i *discordgo.Interact
 				Flags:      discordgo.MessageFlagsIsComponentsV2,
 			},
 		})
-	case "open_position_modal":
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseModal,
-			Data: &discordgo.InteractionResponseData{
-				CustomID: fmt.Sprintf("set_position_modal:%s", i.Message.ID),
-				Title:    "Set Position Title",
-				Components: []discordgo.MessageComponent{
-					discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-						discordgo.TextInput{
-							CustomID:    "position_title",
-							Label:       "Position",
-							Style:       discordgo.TextInputShort,
-							Value:       state.PositionTitle,
-							Placeholder: "Backend Engineer",
-							Required:    true,
-							MaxLength:   80,
-						},
-					}},
-				},
-			},
-		})
 	case "trigger_job_search":
 		b.handleSearchJobs(s, i, state)
 	}
-}
-
-func (b *Bot) handleModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	customID := i.ModalSubmitData().CustomID
-	if !strings.HasPrefix(customID, "set_position_modal:") {
-		return
-	}
-
-	messageID := strings.TrimPrefix(customID, "set_position_modal:")
-	if messageID == "" {
-		return
-	}
-
-	state := b.getCriteriaState(messageID)
-	for _, rowComp := range i.ModalSubmitData().Components {
-		row, ok := rowComp.(discordgo.ActionsRow)
-		if !ok {
-			continue
-		}
-		for _, inputComp := range row.Components {
-			input, ok := inputComp.(discordgo.TextInput)
-			if !ok {
-				continue
-			}
-			if input.CustomID == "position_title" {
-				state.PositionTitle = strings.TrimSpace(input.Value)
-			}
-		}
-	}
-	if state.PositionTitle == "" {
-		state.PositionTitle = defaultCriteriaState().PositionTitle
-	}
-	b.saveCriteriaState(messageID, state)
-
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseUpdateMessage,
-		Data: &discordgo.InteractionResponseData{
-			Components: buildJobSweeperV2Components(state, ""),
-			Flags:      discordgo.MessageFlagsIsComponentsV2,
-		},
-	})
 }
 
 func (b *Bot) handleSearchJobs(s *discordgo.Session, i *discordgo.InteractionCreate, state criteriaState) {
@@ -177,6 +124,7 @@ func (b *Bot) handleSearchJobs(s *discordgo.Session, i *discordgo.InteractionCre
 	q := job.JobQuery{
 		Level:     mapLevelToQuery(state.LevelValue),
 		Location:  mapLocationToQuery(state.LocationValue),
+		Expertise: mapPositionToQuery(state.PositionValue),
 		AIEnabled: b.cfg.GroqAPIKey != "",
 	}
 
@@ -189,7 +137,6 @@ func (b *Bot) handleSearchJobs(s *discordgo.Session, i *discordgo.InteractionCre
 		return
 	}
 
-	jobs = filterJobsByPosition(jobs, state.PositionTitle)
 	if len(jobs) == 0 {
 		components := buildJobSweeperV2Components(state, "No jobs found with the current filters.")
 		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
@@ -204,8 +151,8 @@ func (b *Bot) handleSearchJobs(s *discordgo.Session, i *discordgo.InteractionCre
 	embed := buildJobEmbed(jobs[0], 1, len(jobs))
 	components := []discordgo.MessageComponent{
 		discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-			discordgo.Button{Label: "Prev", Style: discordgo.SecondaryButton, CustomID: "job_page_prev", Disabled: true},
-			discordgo.Button{Label: "Next", Style: discordgo.SecondaryButton, CustomID: "job_page_next", Disabled: len(jobs) == 1},
+			discordgo.Button{Label: "Previous", Style: discordgo.SecondaryButton, CustomID: "job_page_prev", Disabled: true},
+			discordgo.Button{Label: "Next", Style: discordgo.PrimaryButton, CustomID: "job_page_next", Disabled: len(jobs) == 1},
 		}},
 	}
 
@@ -286,8 +233,8 @@ func (b *Bot) handlePaginationComponent(s *discordgo.Session, i *discordgo.Inter
 	embed := buildJobEmbed(jobs[page-1], page, len(jobs))
 	components := []discordgo.MessageComponent{
 		discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-			discordgo.Button{Label: "Prev", Style: discordgo.SecondaryButton, CustomID: "job_page_prev", Disabled: page == 1},
-			discordgo.Button{Label: "Next", Style: discordgo.SecondaryButton, CustomID: "job_page_next", Disabled: page == len(jobs)},
+			discordgo.Button{Label: "Previous", Style: discordgo.SecondaryButton, CustomID: "job_page_prev", Disabled: page == 1},
+			discordgo.Button{Label: "Next", Style: discordgo.PrimaryButton, CustomID: "job_page_next", Disabled: page == len(jobs)},
 		}},
 	}
 
@@ -320,10 +267,12 @@ func mapLevelToQuery(v string) string {
 	switch v {
 	case "intern":
 		return "Intern"
+	case "junior":
+		return "Junior"
 	case "senior":
 		return "Senior"
 	default:
-		return "Junior"
+		return ""
 	}
 }
 
@@ -331,24 +280,16 @@ func mapLocationToQuery(v string) string {
 	switch v {
 	case "hanoi":
 		return "HN"
-	case "all":
-		return ""
-	default:
+	case "hcm":
 		return "HCM"
+	default:
+		return ""
 	}
 }
 
-func filterJobsByPosition(jobs []job.JobEntry, position string) []job.JobEntry {
-	position = strings.TrimSpace(strings.ToLower(position))
-	if position == "" {
-		return jobs
+func mapPositionToQuery(v string) string {
+	if v == "all" || v == "" {
+		return ""
 	}
-
-	filtered := make([]job.JobEntry, 0, len(jobs))
-	for _, j := range jobs {
-		if strings.Contains(strings.ToLower(j.Title), position) {
-			filtered = append(filtered, j)
-		}
-	}
-	return filtered
+	return v
 }

@@ -56,7 +56,7 @@ func Load() *Config {
 		log.Println("config: GROQ_API_KEY is not set; AI enrichment will be skipped")
 	}
 
-	cfg.JobRetentionDays = 60
+	cfg.JobRetentionDays = 30
 	if v := os.Getenv("JOB_RETENTION_DAYS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			cfg.JobRetentionDays = n

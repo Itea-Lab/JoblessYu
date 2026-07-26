@@ -139,8 +139,8 @@ func TestRegexExtractor_ReturnsFullMeta(t *testing.T) {
 	if meta.Level != "Senior" {
 		t.Errorf("Level = %q, want Senior", meta.Level)
 	}
-	if meta.Type != "Fulltime" {
-		t.Errorf("Type = %q, want Fulltime", meta.Type)
+	if meta.Type != "Full-time" {
+		t.Errorf("Type = %q, want Full-time", meta.Type)
 	}
 	if len(meta.Tags) == 0 {
 		t.Error("Tags empty; expected Cloud/Languages/Containers categories")
@@ -156,6 +156,24 @@ func TestRegexExtractor_ReturnsFullMeta(t *testing.T) {
 	}
 	if meta.Model != "regex" {
 		t.Errorf("Model = %q, want \"regex\"", meta.Model)
+	}
+}
+
+func TestRegexExtractor_DetectType(t *testing.T) {
+	ext := newExtractor()
+	cases := []struct {
+		desc string
+		want string
+	}{
+		{"This is a full-time role in HCM.", "Full-time"},
+		{"Looking for a part time developer.", "Part-time"},
+		{"We are hiring software engineers.", ""},
+	}
+	for _, c := range cases {
+		got := ext.detectType(strings.ToLower(c.desc))
+		if got != c.want {
+			t.Errorf("detectType(%q) = %q, want %q", c.desc, got, c.want)
+		}
 	}
 }
 

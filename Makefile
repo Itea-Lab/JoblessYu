@@ -26,7 +26,7 @@ enrich:
 
 # DB migrations
 migrate:
-	@eval $$(python3 -c "from dotenv import dotenv_values; [print(f'export {k}={v!r}') for k,v in dotenv_values('.env').items()]") && for f in migrations/*.sql; do echo "Applying $$f"; psql "$$DATABASE_URL" -f $$f; done
+	@eval $$(scraper-python/.venv/bin/python3 -c "from dotenv import dotenv_values; [print(f'export {k}={v!r}') for k,v in dotenv_values('.env').items()]" 2>/dev/null || python3 -c "from dotenv import dotenv_values; [print(f'export {k}={v!r}') for k,v in dotenv_values('.env').items()]") && for f in migrations/*.sql; do echo "Applying $$f"; psql "$$DATABASE_URL" -f $$f; done
 
 clean:
 	rm -f jobs.json bot

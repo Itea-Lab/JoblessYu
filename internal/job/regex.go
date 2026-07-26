@@ -100,9 +100,9 @@ func (r *RegexExtractor) detectType(hay string) string {
 	}
 	switch strings.ToLower(m) {
 	case "full-time", "full time", "fulltime":
-		return "Fulltime"
+		return "Full-time"
 	case "part-time", "part time", "parttime":
-		return "Parttime"
+		return "Part-time"
 	}
 	return ""
 }
