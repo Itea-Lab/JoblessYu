@@ -79,7 +79,8 @@ func buildJobSweeperV2Components(state criteriaState, notice string) []discordgo
 
 	levelOptions := []discordgo.SelectMenuOption{
 		{Label: "All Levels", Value: "all"},
-		{Label: "Intern", Value: "intern", Description: "Entry level & internship roles"},
+		{Label: "Intern", Value: "intern", Description: "Internship roles"},
+		{Label: "Fresher", Value: "fresher", Description: "Fresh graduates & 0-1 years experience"},
 		{Label: "Junior", Value: "junior", Description: "1-3 years of experience"},
 		{Label: "Senior", Value: "senior", Description: "5+ years & leadership roles"},
 	}
@@ -199,6 +200,8 @@ func levelLabelFromValue(v string) string {
 	switch v {
 	case "intern":
 		return "Intern"
+	case "fresher":
+		return "Fresher"
 	case "junior":
 		return "Junior"
 	case "senior":

@@ -280,6 +280,8 @@ func mapLevelToQuery(v string) string {
 	switch v {
 	case "intern":
 		return "Intern"
+	case "fresher":
+		return "Fresher"
 	case "junior":
 		return "Junior"
 	case "senior":
