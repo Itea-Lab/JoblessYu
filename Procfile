@@ -1,1 +1,1 @@
-worker: ./joblessyu-bot
+worker: bin/bot
