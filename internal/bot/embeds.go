@@ -277,6 +277,7 @@ func buildJobEmbed(j job.JobEntry, page, total int) *discordgo.MessageEmbed {
 		}
 	}
 	desc += "\n\n" + strings.Join(applyLinks, " • ")
+	desc = truncateForDiscord(desc, 3900)
 
 	return &discordgo.MessageEmbed{
 		Title:       fmt.Sprintf("Job Listing (%d of %d)", page, total),
@@ -286,4 +287,14 @@ func buildJobEmbed(j job.JobEntry, page, total int) *discordgo.MessageEmbed {
 			Text: fmt.Sprintf("JoblessYu • Page %d of %d", page, total),
 		},
 	}
+}
+
+func truncateForDiscord(s string, max int) string {
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	if max <= 3 {
+		return s[:max]
+	}
+	return s[:max-3] + "..."
 }

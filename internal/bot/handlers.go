@@ -265,13 +265,16 @@ func (b *Bot) handlePaginationComponent(s *discordgo.Session, i *discordgo.Inter
 	embed := buildJobEmbed(jobs[page-1], page, len(jobs))
 	components := buildJobPaginationComponents(page, len(jobs))
 
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseUpdateMessage,
 		Data: &discordgo.InteractionResponseData{
 			Embeds:     []*discordgo.MessageEmbed{embed},
 			Components: components,
 		},
 	})
+	if err != nil {
+		log.Println("Pagination update error:", err)
+	}
 }
 
 func buildJobPaginationComponents(page, total int) []discordgo.MessageComponent {
