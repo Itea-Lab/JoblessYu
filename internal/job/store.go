@@ -10,6 +10,7 @@ import (
 	"log"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -44,10 +45,47 @@ func NewJobRepository(ctx context.Context, dbURL string) (*JobRepository, error)
 	}
 
 	repo := &JobRepository{pool: pool}
-	if err := repo.detectOptionalColumns(ctx); err != nil {
+	if err := repo.detectOptionalColumnsWithRetry(ctx, 3, 500*time.Millisecond); err != nil {
 		log.Printf("job repository: optional column detection failed, using fallback query fragments: %v", err)
 	}
 	return repo, nil
+}
+
+func (r *JobRepository) detectOptionalColumnsWithRetry(ctx context.Context, maxAttempts int, initialBackoff time.Duration) error {
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+	if initialBackoff <= 0 {
+		initialBackoff = 500 * time.Millisecond
+	}
+
+	var lastErr error
+	backoff := initialBackoff
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if err := r.detectOptionalColumns(ctx); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+
+		if attempt == maxAttempts {
+			break
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+
+		// Exponential backoff with a conservative cap.
+		backoff *= 2
+		if backoff > 4*time.Second {
+			backoff = 4 * time.Second
+		}
+	}
+
+	return lastErr
 }
 
 func (r *JobRepository) detectOptionalColumns(ctx context.Context) error {
