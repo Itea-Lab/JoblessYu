@@ -15,7 +15,10 @@ import (
 )
 
 type JobRepository struct {
-	pool *pgxpool.Pool
+	pool            *pgxpool.Pool
+	hasJobTypeNorm  bool
+	hasExpertise    bool
+	hasAlternateURLs bool
 }
 
 // levelWordPatterns, levelYearPatterns and levelNoExpPatterns are DERIVED from
@@ -75,7 +78,42 @@ func NewJobRepository(ctx context.Context, dbURL string) (*JobRepository, error)
 		return nil, fmt.Errorf("create pool: %w", err)
 	}
 
-	return &JobRepository{pool: pool}, nil
+	repo := &JobRepository{pool: pool}
+	if err := repo.detectOptionalColumns(ctx); err != nil {
+		log.Printf("job repository: optional column detection failed, using fallback query fragments: %v", err)
+	}
+	return repo, nil
+}
+
+func (r *JobRepository) detectOptionalColumns(ctx context.Context) error {
+	var err error
+	r.hasJobTypeNorm, err = r.hasColumn(ctx, "job_type_normalized")
+	if err != nil {
+		return err
+	}
+	r.hasExpertise, err = r.hasColumn(ctx, "expertise")
+	if err != nil {
+		return err
+	}
+	r.hasAlternateURLs, err = r.hasColumn(ctx, "alternate_urls")
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *JobRepository) hasColumn(ctx context.Context, columnName string) (bool, error) {
+	var exists bool
+	err := r.pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM information_schema.columns
+			WHERE table_schema = 'public'
+			  AND table_name = 'jobs'
+			  AND column_name = $1
+		)
+	`, columnName).Scan(&exists)
+	return exists, err
 }
 
 func (r *JobRepository) Close() {
@@ -105,7 +143,19 @@ func (r *JobRepository) Close() {
 func (r *JobRepository) FetchRawJobs(ctx context.Context, q JobQuery) ([]JobEntry, error) {
 	args := []interface{}{}
 	argIdx := 1
-	query := `SELECT id, COALESCE(title, ''), COALESCE(company, ''), COALESCE(location, ''), job_url, COALESCE(NULLIF(job_type_normalized, ''), COALESCE(job_type, '')), COALESCE(description, ''), COALESCE(level, ''), ai_processed_at, COALESCE(tags, '{}'::jsonb), COALESCE(summary, ''), COALESCE(salary, ''), COALESCE(remote, false), COALESCE(ai_model, ''), COALESCE(expertise, ''), COALESCE(site, ''), COALESCE(alternate_urls, '[]'::jsonb) FROM jobs`
+	jobTypeExpr := `COALESCE(job_type, '')`
+	if r.hasJobTypeNorm {
+		jobTypeExpr = `COALESCE(NULLIF(job_type_normalized, ''), COALESCE(job_type, ''))`
+	}
+	expertiseExpr := `''`
+	if r.hasExpertise {
+		expertiseExpr = `COALESCE(expertise, '')`
+	}
+	altURLsExpr := `'[]'::jsonb`
+	if r.hasAlternateURLs {
+		altURLsExpr = `COALESCE(alternate_urls, '[]'::jsonb)`
+	}
+	query := fmt.Sprintf(`SELECT id, COALESCE(title, ''), COALESCE(company, ''), COALESCE(location, ''), job_url, %s, COALESCE(description, ''), COALESCE(level, ''), ai_processed_at, COALESCE(tags, '{}'::jsonb), COALESCE(summary, ''), COALESCE(salary, ''), COALESCE(remote, false), COALESCE(ai_model, ''), %s, COALESCE(site, ''), %s FROM jobs`, jobTypeExpr, expertiseExpr, altURLsExpr)
 
 	// Only show AI-enriched jobs — un-enriched jobs are hidden from users
 	// until the daily batch enrichment processes them.
@@ -166,9 +216,13 @@ func (r *JobRepository) FetchRawJobs(ctx context.Context, q JobQuery) ([]JobEntr
 		argIdx += 4
 	}
 	if q.Expertise != "" {
-		conditions = append(conditions, fmt.Sprintf(`expertise = $%d`, argIdx))
-		args = append(args, q.Expertise)
-		argIdx++
+		if r.hasExpertise {
+			conditions = append(conditions, fmt.Sprintf(`expertise = $%d`, argIdx))
+			args = append(args, q.Expertise)
+			argIdx++
+		} else {
+			log.Printf("job repository: expertise filter requested (%s) but expertise column is missing; returning broader results", q.Expertise)
+		}
 	}
 
 	if len(conditions) > 0 {
