@@ -18,8 +18,9 @@ const (
 )
 
 type cachedJobs struct {
-	jobs       []job.JobEntry
-	insertedAt time.Time
+	jobs        []job.JobEntry
+	currentPage int
+	insertedAt  time.Time
 }
 
 type criteriaState struct {
