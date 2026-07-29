@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"JoblessYu/internal/job"
@@ -58,7 +59,7 @@ func (b *Bot) handleMessageComponent(s *discordgo.Session, i *discordgo.Interact
 	}
 
 	customID := i.MessageComponentData().CustomID
-	if customID == "job_page_prev" || customID == "job_page_next" {
+	if strings.HasPrefix(customID, "job_page_prev") || strings.HasPrefix(customID, "job_page_next") {
 		b.handlePaginationComponent(s, i)
 		return
 	}
@@ -165,8 +166,9 @@ func (b *Bot) handleSearchJobs(s *discordgo.Session, i *discordgo.InteractionCre
 	criteriaComponents := buildJobSweeperV2Components(state, "")
 	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Components: &criteriaComponents})
 
+	sessionKey := i.Interaction.ID
 	embed := buildJobEmbed(jobs[0], 1, len(jobs))
-	components := buildJobPaginationComponents(1, len(jobs))
+	components := buildJobPaginationComponents(1, len(jobs), sessionKey)
 
 	msg, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
 		Embeds:     []*discordgo.MessageEmbed{embed},
@@ -179,14 +181,8 @@ func (b *Bot) handleSearchJobs(s *discordgo.Session, i *discordgo.InteractionCre
 
 	b.cacheLock.Lock()
 	entry := cachedJobs{jobs: jobs, currentPage: 1, insertedAt: time.Now()}
-	if i.Message != nil && i.Message.ID != "" {
-		b.jobsCache[i.Message.ID] = entry
-	}
-	if i.Message != nil && i.Message.Interaction != nil && i.Message.Interaction.ID != "" {
-		b.jobsCache[i.Message.Interaction.ID] = entry
-	}
-	if i.Interaction != nil && i.Interaction.ID != "" {
-		b.jobsCache[i.Interaction.ID] = entry
+	if sessionKey != "" {
+		b.jobsCache[sessionKey] = entry
 	}
 	if msg != nil && msg.ID != "" {
 		b.jobsCache[msg.ID] = entry
@@ -195,58 +191,33 @@ func (b *Bot) handleSearchJobs(s *discordgo.Session, i *discordgo.InteractionCre
 }
 
 func (b *Bot) handlePaginationComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	cacheKey := ""
-	if i.Message != nil && i.Message.ID != "" {
-		cacheKey = i.Message.ID
-	}
-	if cacheKey == "" && i.Message.Interaction != nil {
-		cacheKey = i.Message.Interaction.ID
-	}
-	if cacheKey == "" {
+	customID := i.MessageComponentData().CustomID
+	action, sessionKey, ok := strings.Cut(customID, ":")
+	if !ok || sessionKey == "" {
 		return
 	}
 
 	b.cacheLock.RLock()
-	cached, ok := b.jobsCache[cacheKey]
+	cached, ok := b.jobsCache[sessionKey]
 	b.cacheLock.RUnlock()
 	jobs := cached.jobs
 	if !ok || len(jobs) == 0 {
-		// Self-healing fallback: If cache expired or bot was restarted, re-fetch active jobs from DB
-		ctx := context.Background()
-		var err error
-		jobs, err = b.jobService.FetchAndProcessJobs(ctx, job.JobQuery{AIEnabled: b.cfg.GroqAPIKey != ""})
-		if err != nil || len(jobs) == 0 {
-			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				Type: discordgo.InteractionResponseChannelMessageWithSource,
-				Data: &discordgo.InteractionResponseData{
-					Content: "This job list has expired. Please run /jobs again.",
-					Flags:   discordgo.MessageFlagsEphemeral,
-				},
-			})
-			return
-		}
-		// Save back to cache for subsequent pagination clicks
-		b.cacheLock.Lock()
-		b.jobsCache[cacheKey] = cachedJobs{jobs: jobs, currentPage: 1, insertedAt: time.Now()}
-		b.cacheLock.Unlock()
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "This job list has expired. Please run /jobs again.",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
 	}
 
 	page := cached.currentPage
 	if page < 1 {
 		page = 1
 	}
-	if page == 1 && len(i.Message.Embeds) > 0 {
-		var total int
-		if _, err := fmt.Sscanf(i.Message.Embeds[0].Title, "Job Listing (%d of %d)", &page, &total); err != nil {
-			page = 1
-		}
-		if page < 1 {
-			page = 1
-		}
-	}
 
-	customID := i.MessageComponentData().CustomID
-	switch customID {
+	switch action {
 	case "job_page_prev":
 		if page > 1 {
 			page--
@@ -260,11 +231,11 @@ func (b *Bot) handlePaginationComponent(s *discordgo.Session, i *discordgo.Inter
 	}
 
 	b.cacheLock.Lock()
-	b.jobsCache[cacheKey] = cachedJobs{jobs: jobs, currentPage: page, insertedAt: time.Now()}
+	b.jobsCache[sessionKey] = cachedJobs{jobs: jobs, currentPage: page, insertedAt: time.Now()}
 	b.cacheLock.Unlock()
 
 	embed := buildJobEmbed(jobs[page-1], page, len(jobs))
-	components := buildJobPaginationComponents(page, len(jobs))
+	components := buildJobPaginationComponents(page, len(jobs), sessionKey)
 
 	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseUpdateMessage,
@@ -278,11 +249,17 @@ func (b *Bot) handlePaginationComponent(s *discordgo.Session, i *discordgo.Inter
 	}
 }
 
-func buildJobPaginationComponents(page, total int) []discordgo.MessageComponent {
+func buildJobPaginationComponents(page, total int, sessionKey string) []discordgo.MessageComponent {
+	prevID := "job_page_prev"
+	nextID := "job_page_next"
+	if sessionKey != "" {
+		prevID = fmt.Sprintf("job_page_prev:%s", sessionKey)
+		nextID = fmt.Sprintf("job_page_next:%s", sessionKey)
+	}
 	return []discordgo.MessageComponent{
 		discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-			discordgo.Button{Label: "Previous", Style: discordgo.SecondaryButton, CustomID: "job_page_prev", Disabled: page == 1},
-			discordgo.Button{Label: "Next", Style: discordgo.PrimaryButton, CustomID: "job_page_next", Disabled: page == total},
+			discordgo.Button{Label: "Previous", Style: discordgo.SecondaryButton, CustomID: prevID, Disabled: page == 1},
+			discordgo.Button{Label: "Next", Style: discordgo.PrimaryButton, CustomID: nextID, Disabled: page == total},
 		}},
 	}
 }
