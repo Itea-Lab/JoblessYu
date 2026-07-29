@@ -196,11 +196,11 @@ func (b *Bot) handleSearchJobs(s *discordgo.Session, i *discordgo.InteractionCre
 
 func (b *Bot) handlePaginationComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	cacheKey := ""
-	if i.Message.Interaction != nil {
-		cacheKey = i.Message.Interaction.ID
-	}
-	if cacheKey == "" {
+	if i.Message != nil && i.Message.ID != "" {
 		cacheKey = i.Message.ID
+	}
+	if cacheKey == "" && i.Message.Interaction != nil {
+		cacheKey = i.Message.Interaction.ID
 	}
 	if cacheKey == "" {
 		return
