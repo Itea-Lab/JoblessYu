@@ -268,6 +268,20 @@ func jobTypeLabelFromValue(v string) string {
 	}
 }
 
+func formatJobTypePill(t string) string {
+	val := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(t, "-", ""), " ", ""))
+	switch {
+	case strings.Contains(val, "fulltime"):
+		return "Full-time"
+	case strings.Contains(val, "parttime"):
+		return "Part-time"
+	case strings.Contains(val, "contract"):
+		return "Contract"
+	default:
+		return t
+	}
+}
+
 func buildJobEmbed(j job.JobEntry, page, total int) *discordgo.MessageEmbed {
 	desc := fmt.Sprintf("### %s\n", j.Title) +
 		fmt.Sprintf("> Company: `%s`\n", j.Company) +
@@ -285,7 +299,7 @@ func buildJobEmbed(j job.JobEntry, page, total int) *discordgo.MessageEmbed {
 		tagPills = append(tagPills, fmt.Sprintf("`%s`", j.Level))
 	}
 	if j.Type != "" {
-		tagPills = append(tagPills, fmt.Sprintf("`%s`", j.Type))
+		tagPills = append(tagPills, fmt.Sprintf("`%s`", formatJobTypePill(j.Type)))
 	}
 	if len(j.Tags) > 0 {
 		categories := make([]string, 0, len(j.Tags))
