@@ -1,6 +1,6 @@
 # JoblessYu
 
-JoblessYu is a Discord bot built in Go that scrapes IT job listings from Vietnamese and global job boards, classifies them with AI, and serves them via an interactive slash command with pagination and filtering.
+JoblessYu is a Discord bot built in Go that scrapes IT job listings from Vietnamese and global job boards (ITViec, Indeed, LinkedIn), classifies them with Groq AI, and serves them via an interactive, 100% ephemeral (`"Only you can see this"`) slash command with rich filtering and pagination.
 
 ## Architecture
 
@@ -10,7 +10,7 @@ DAILY 5:00 AM ICT (automated cron)
     ├── 1. SCRAPE
     │      ├── Python jobspy  → Indeed (20 jobs) + LinkedIn (20 jobs)
     │      ├── Go Colly        → ITViec (20 jobs, 24h freshness filter)
-    │      └── Upsert to Neon Postgres
+    │      └── Cross-Site Deduplication (7-day window → merges alternate URLs)
     │
     ├── 2. AI ENRICHMENT (Groq — llama-3.1-8b-instant)
     │      ├── Classifies: level, type, expertise, tags, salary, remote, summary
@@ -18,34 +18,46 @@ DAILY 5:00 AM ICT (automated cron)
     │      ├── Jobs with empty descriptions (<50 chars) are deleted
     │      └── Bilingual: handles Vietnamese + English + mixed JDs
     │
-    ├── 3. SERVING (/jobs command — pure DB read, instant)
-    │      ├── Only AI-enriched jobs are shown
-    │      ├── Interactive filter panel: level, location, position title
-    │      └── Pagination with Prev/Next buttons
+    ├── 3. SERVING (/jobs command — 100% Ephemeral & Private)
+    │      ├── Filter menu & job result cards are tagged "Only you can see this"
+    │      ├── Interactive filter panel: Level, Location, Position, Job Type
+    │      ├── Self-healing pagination cache with automatic DB recovery
+    │      └── Multi-platform apply links (Indeed, LinkedIn, ITViec)
     │
     └── 4. WEEKLY CLEANUP (Monday 4:55 AM)
            └── Auto-delete jobs older than 30 days
 ```
 
-## Expertise Filter (backend)
+## Expertise Categories (24 Categories)
 
-The AI classifies each job into one of 13 broad expertise categories:
+The AI classifies each job into one of 24 canonical IT expertise categories based on ITViec's master taxonomy:
 
-| Category | Covers |
-|---|---|
-| Management & Executive | Project/product manager, CTO, CIO, director |
-| Web Development | Backend, frontend, fullstack, HTML/CSS/JS |
-| Mobile & Game Development | iOS, Android, Flutter, Unity |
-| Enterprise Systems | ERP, CRM, SAP, RPA, banking systems |
-| Architecture | Solution/enterprise/technical architect |
-| Data & AI | Data analyst, ML engineer, data scientist |
-| Cloud & DevOps | DevOps, cloud engineer, AWS, Kubernetes |
-| Systems & Network | Network engineer, sysadmin, infrastructure |
-| IT Support & Security | Helpdesk, security engineer, cybersecurity |
-| Embedded & IoT | Firmware, microcontroller, robotics |
-| Testing & QA | QA, tester, SDET, automation |
-| Design & UX | UX/UI designer, product designer |
-| Consulting & Sales | IT consultant, pre-sales, technical account |
+| Category | Value | Covers |
+|---|---|---|
+| IT Executive & Management | `management` | Project/product manager, CTO, CIO, CISO, CDO, VP, Director |
+| Web Application Development | `web_dev` | Backend, frontend, fullstack, Node.js, React, Vue, Go |
+| Mobile Application Development | `mobile_dev` | iOS, Android, Flutter, React Native, Swift, Kotlin |
+| Core / Enterprise Systems | `enterprise` | ERP, CRM, SAP, Oracle, banking systems, Salesforce |
+| Low-Code / No-Code Dev | `lowcode_nocode` | RPA, UiPath, Power Apps, Mendix, OutSystems |
+| Technical Architecture | `architecture` | Solution, enterprise, and technical software architects |
+| Blockchain Development | `blockchain` | Blockchain, smart contracts, Solidity, Web3, Ethereum |
+| Game Development | `game_dev` | Unity, Unreal, Godot, game designer, game producer |
+| Software Testing & QA | `testing_qa` | QA, automation tester, manual tester, SDET, PQA |
+| Data Analytics & BI | `data_analytics` | Data analyst, BI analyst, BI developer, Power BI, Tableau |
+| Data Engineering | `data_engineering` | Data engineer, Big Data, DataOps, MLOps, ETL, Spark |
+| Data Science & AI / ML | `data_ai` | Machine learning engineer, AI researcher, data scientist |
+| Data Management & Governance | `data_governance` | Data architect, data steward, database administrator (DBA) |
+| Cloud Computing | `cloud` | Cloud engineer, AWS, Azure, GCP, cloud architect |
+| Systems & Network Admin | `systems_network` | Network engineer, sysadmin, sysops, Linux, Windows server |
+| DevOps & Site Reliability (SRE) | `devops_sre` | DevOps engineer, Kubernetes, Terraform, SRE, CI/CD |
+| IT Support & Helpdesk | `support_helpdesk` | IT support, helpdesk, IT administrator, field support |
+| Cybersecurity | `cybersecurity` | Security engineer, penetration tester, DevSecOps, SOC analyst |
+| IT Compliance & Risk | `compliance_risk` | Compliance officer, GRC specialist, IT auditor, risk manager |
+| Embedded, IoT & Robotics | `embedded_iot` | Embedded engineer, firmware, IoT, robotics, RTOS, microcontrollers |
+| Product Management | `product_mgmt` | Product manager, product owner, product analyst |
+| Project Management & Tech Comm | `project_mgmt` | Scrum master, agile coach, BrSE, business analyst, tech writer |
+| Design & User Experience | `design_ux` | UX/UI designer, product designer, Figma, motion designer |
+| IT Consulting & Sales | `consulting_sales` | IT consultant, pre-sales, technical account manager |
 
 ## Prerequisites
 
@@ -102,25 +114,25 @@ make bot
 
 ### Daily pipeline (5:00 AM ICT)
 
-1. **Scrape (jobspy + Colly)**
-   - Python jobspy scrapes Indeed + LinkedIn (20 jobs each, posts from last 24 hours)
+1. **Scrape (JobSpy + Colly)**
+   - Python JobSpy scrapes Indeed + LinkedIn (20 jobs each, posts from last 24 hours) using ITViec's canonical IT search query and non-IT title filters
    - Go Colly scrapes ITViec (20 jobs, filtered by "Posted X ago" ≤ 24h)
-   - Total: ~60 jobs/day, upserted to Neon DB (deduplication via `ON CONFLICT`)
+   - Cross-site deduplication computes `dedup_hash` (Company + Title + JobType) over a 7-day window, merging duplicate multi-platform URLs into `alternate_urls` JSONB
 
 2. **AI Enrichment (Groq)**
    - Batch enrichment processes all un-enriched jobs (2-hour window)
-   - Groq (`llama-3.1-8b-instant`) classifies: level, type, expertise, tags, salary, remote, summary
+   - Groq (`llama-3.1-8b-instant`) classifies: level (`Intern`, `Fresher`, `Junior`, `Senior`), type (`Full-time`, `Part-time`, `Contract`), expertise (24 categories), tags, salary, remote, summary
    - JDs truncated to 1,500 chars to stay within Groq's free-tier TPM limit (8,000 TPM)
    - 18s throttle between calls (~3.3 calls/min, ~5,050 TPM — 63% of limit)
-   - Regex fallback only when Groq is unreachable (network errors only — not 429 or 400)
-   - Jobs with empty descriptions (<50 chars) are deleted (useless for classification)
+   - Regex fallback only when Groq is unreachable (network errors only)
+   - Jobs with empty descriptions (<50 chars) are deleted
    - Bilingual: handles Vietnamese titles ("Chuyên viên" → Junior), experience phrases, skill inference
 
-3. **Serving (/jobs command)**
+3. **Serving (/jobs command — 100% Ephemeral & Private)**
    - Pure DB read — instant response, no AI calls during user interaction
-   - Only AI-enriched jobs shown (`WHERE ai_processed_at IS NOT NULL`)
-   - Interactive filter panel: level, location, position title
-   - Pagination with Prev/Next buttons
+   - Responses are tagged `"Only you can see this"` to preserve user privacy and keep channels clean
+   - Filter dropdowns: Position (24 categories), Experience Level (`Intern`, `Fresher`, `Junior`, `Senior`, `All`), Location (`Ho Chi Minh`, `Ha Noi`, `All`), Job Type (`Full-time`, `Part-time`, `Contract`, `All`)
+   - Interactive pagination with Prev/Next buttons and self-healing DB fallback recovery
 
 4. **Weekly cleanup (Monday 4:55 AM)**
    - Jobs older than 30 days auto-deleted to keep DB lean (Neon free tier)
