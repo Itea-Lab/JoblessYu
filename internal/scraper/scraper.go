@@ -130,7 +130,7 @@ func (m *ScraperManager) StopSchedule() {
 	m.cancel()
 	<-stopCtx.Done()
 	m.runMu.Lock()
-	m.runMu.Unlock()
+	defer m.runMu.Unlock()
 }
 
 // RunScrapeAndEnrich runs the full daily pipeline (exported for manual use).

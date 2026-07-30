@@ -10,22 +10,22 @@ func TestDetectExpertise(t *testing.T) {
 		want        string
 	}{
 		{"backend dev", "Backend Developer", "We need someone with Go experience", "web_dev"},
-		{"devops", "DevOps Engineer", "Manage AWS infrastructure and CI/CD pipelines", "cloud_devops"},
+		{"devops", "DevOps Engineer", "Manage AWS infrastructure and CI/CD pipelines", "devops_sre"},
 		{"qa tester", "QA Engineer", "Manual and automation testing", "testing_qa"},
 		{"data scientist", "Data Scientist", "Machine learning and NLP", "data_ai"},
-		{"it support", "IT Support", "Helpdesk for internal users", "support_security"},
+		{"it support", "IT Support", "Helpdesk for internal users", "support_helpdesk"},
 		{"project manager", "Project Manager", "Scrum and agile delivery", "management"},
 		{"unknown", "Sales Representative", "Sell products to customers", ExpertiseUnknown},
 		{"empty", "", "", ExpertiseUnknown},
-		{"mobile ios", "iOS Developer", "Swift and Objective-C", "mobile_game"},
+		{"mobile ios", "iOS Developer", "Swift and Objective-C", "mobile_dev"},
 		{"embedded", "Firmware Engineer", "STM32 microcontroller development", "embedded_iot"},
 		{"ux designer", "UX/UI Designer", "Figma and user research", "design_ux"},
-		{"security", "Security Engineer", "Penetration testing and SOC", "support_security"},
+		{"security", "Security Engineer", "Penetration testing and SOC", "cybersecurity"},
 		{"architect", "Solution Architect", "Enterprise architecture design", "architecture"},
-		{"consultant", "IT Consultant", "Pre-sales technical consulting", ExpertiseUnknown},
+		{"consultant", "IT Consultant", "Pre-sales technical consulting", "consulting_sales"},
 		// False-positive regression tests (word-boundary fixes H1/H2)
 		{"html not ml", "HTML Developer", "Build websites with HTML and CSS", "web_dev"},
-		{"linux not ux", "Systems Engineer", "Work with Linux servers", ExpertiseUnknown},
+		{"linux not ux", "Systems Engineer", "Work with Linux servers", "systems_network"},
 		{"iraq not qa", "Field Engineer", "Previously worked in Iraq", ExpertiseUnknown},
 	}
 	for _, c := range cases {
@@ -43,8 +43,8 @@ func TestExpertiseLabel(t *testing.T) {
 		value string
 		want  string
 	}{
-		{"web_dev", "Web Development"},
-		{"cloud_devops", "Cloud & DevOps"},
+		{"web_dev", "Web Application Development"},
+		{"cloud", "Cloud Computing"},
 		{"", "Unknown"},
 		{"unknown", "Unknown"},
 		{"invalid_value", "Unknown"},

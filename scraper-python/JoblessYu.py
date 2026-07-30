@@ -144,10 +144,17 @@ def JobScan():
     print("JoblessYu is looking for jobs =w=")
 
     # Scrape jobs using JobSpy — daily, 20 per site (20 Indeed + 20 LinkedIn).
-    # Comprehensive search query covering all 13 tech expertise categories.
+    # Uses ITViec canonical tech role search query to prevent non-IT noise.
+    search_term = (
+        '"software engineer" OR "software developer" OR "backend" OR "frontend" OR '
+        '"fullstack" OR "data engineer" OR "data analyst" OR "AI engineer" OR '
+        '"devops" OR "cloud engineer" OR "QA engineer" OR "tester" OR "SDET" OR '
+        '"security engineer" OR "solution architect" OR "product owner" OR '
+        '"scrum master" OR "mobile developer" OR "embedded engineer"'
+    )
     jobs = scrape_jobs(
         site_name=["indeed", "linkedin"],
-        search_term="software OR developer OR IT OR engineer OR data OR devops OR QA OR security OR architect OR designer",
+        search_term=search_term,
         location="vietnam",
         results_wanted=20,
         hours_old=24,
@@ -169,8 +176,16 @@ def JobScan():
     jobs["description"] = jobs["description"].astype(str).str.strip()
     jobs = jobs[(jobs["title"].str.len() > 0) & (jobs["description"].str.len() >= 50)]
 
+    # Filter out non-IT jobs (property management, civil/building engineers, sales/leasing, etc.)
+    non_it_keywords = [
+        "property manager", "leasing", "building engineer", "civil engineer",
+        "formwork", "customer service", "sales director", "real estate", "accountant"
+    ]
+    exclusion_pattern = "|".join(non_it_keywords)
+    jobs = jobs[~jobs["title"].str.lower().str.contains(exclusion_pattern, regex=True, na=False)]
+
     if jobs.empty:
-        print("There are no valid jobs at the moment :c")
+        print("There are no valid IT jobs at the moment :c")
         return
 
     save_jobs_to_neon(jobs)

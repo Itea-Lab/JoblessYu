@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/gocolly/colly/v2"
 )
 
@@ -156,15 +157,36 @@ func (s *CollyScraper) ScrapeITViec(ctx context.Context) ([]JobEntry, error) {
 		// Description: try multiple targeted selectors.
 		var description string
 		for _, sel := range []string{
+			".paragraph-content",
+			".job-details__paragraph",
+			".job-details__body",
+			".job-details__overview",
 			".job-description",
 			".job-detail__description",
 			".job-details__content",
 			".job-details",
+			"[data-controller*='job-details']",
 			"[class*='description']",
+			"article",
+			"main",
 		} {
 			if text := strings.TrimSpace(e.ChildText(sel)); len(text) >= 50 {
 				description = text
 				break
+			}
+		}
+
+		// Fallback: aggregate paragraphs if targeted selectors yield < 50 chars.
+		if len(description) < 50 {
+			var parts []string
+			e.DOM.Find("p, li, div.paragraph-content").Each(func(_ int, s *goquery.Selection) {
+				txt := strings.TrimSpace(s.Text())
+				if len(txt) > 20 {
+					parts = append(parts, txt)
+				}
+			})
+			if len(parts) > 0 {
+				description = strings.Join(parts, "\n")
 			}
 		}
 

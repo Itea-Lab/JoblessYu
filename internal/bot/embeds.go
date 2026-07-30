@@ -57,18 +57,30 @@ func buildJobSweeperV2Components(state criteriaState, notice string) []discordgo
 
 	positionOptions := []discordgo.SelectMenuOption{
 		{Label: "All Positions", Value: "all"},
-		{Label: "Web Development", Value: "web_dev"},
-		{Label: "Cloud & DevOps", Value: "cloud_devops"},
-		{Label: "Data & AI", Value: "data_ai"},
-		{Label: "Mobile & Game", Value: "mobile_game"},
-		{Label: "Testing & QA", Value: "testing_qa"},
-		{Label: "IT Support & Security", Value: "support_security"},
-		{Label: "Software Architecture", Value: "architecture"},
-		{Label: "Embedded & IoT", Value: "embedded_iot"},
-		{Label: "Enterprise Systems", Value: "enterprise"},
-		{Label: "Systems & Network", Value: "systems_network"},
-		{Label: "Management & Executive", Value: "management"},
-		{Label: "Design & UX", Value: "design_ux"},
+		{Label: "IT Executive & Management", Value: "management"},
+		{Label: "Web Application Development", Value: "web_dev"},
+		{Label: "Mobile Application Development", Value: "mobile_dev"},
+		{Label: "Core / Enterprise Systems", Value: "enterprise"},
+		{Label: "Low-Code / No-Code Dev", Value: "lowcode_nocode"},
+		{Label: "Technical Architecture", Value: "architecture"},
+		{Label: "Blockchain Development", Value: "blockchain"},
+		{Label: "Game Development", Value: "game_dev"},
+		{Label: "Software Testing & QA", Value: "testing_qa"},
+		{Label: "Data Analytics & BI", Value: "data_analytics"},
+		{Label: "Data Engineering", Value: "data_engineering"},
+		{Label: "Data Science & AI / ML", Value: "data_ai"},
+		{Label: "Data Management & Governance", Value: "data_governance"},
+		{Label: "Cloud Computing", Value: "cloud"},
+		{Label: "Systems & Network Admin", Value: "systems_network"},
+		{Label: "DevOps & Site Reliability (SRE)", Value: "devops_sre"},
+		{Label: "IT Support & Helpdesk", Value: "support_helpdesk"},
+		{Label: "Cybersecurity", Value: "cybersecurity"},
+		{Label: "IT Compliance & Risk", Value: "compliance_risk"},
+		{Label: "Embedded, IoT & Robotics", Value: "embedded_iot"},
+		{Label: "Product Management", Value: "product_mgmt"},
+		{Label: "Project Management & Tech Comm", Value: "project_mgmt"},
+		{Label: "Design & User Experience", Value: "design_ux"},
+		{Label: "IT Consulting & Sales", Value: "consulting_sales"},
 	}
 	for i := range positionOptions {
 		if positionOptions[i].Value == state.PositionValue {
@@ -164,30 +176,54 @@ func buildJobSweeperComponents() []discordgo.MessageComponent {
 
 func positionLabelFromValue(v string) string {
 	switch v {
-	case "web_dev":
-		return "Web Development"
-	case "cloud_devops":
-		return "Cloud & DevOps"
-	case "data_ai":
-		return "Data & AI"
-	case "mobile_game":
-		return "Mobile & Game"
-	case "testing_qa":
-		return "Testing & QA"
-	case "support_security":
-		return "IT Support & Security"
-	case "architecture":
-		return "Software Architecture"
-	case "embedded_iot":
-		return "Embedded & IoT"
-	case "enterprise":
-		return "Enterprise Systems"
-	case "systems_network":
-		return "Systems & Network"
 	case "management":
-		return "Management & Executive"
+		return "IT Executive & Management"
+	case "web_dev":
+		return "Web Application Development"
+	case "mobile_dev":
+		return "Mobile Application Development"
+	case "enterprise":
+		return "Core / Enterprise Systems"
+	case "lowcode_nocode":
+		return "Low-Code / No-Code Dev"
+	case "architecture":
+		return "Technical Architecture"
+	case "blockchain":
+		return "Blockchain Development"
+	case "game_dev":
+		return "Game Development"
+	case "testing_qa":
+		return "Software Testing & QA"
+	case "data_analytics":
+		return "Data Analytics & BI"
+	case "data_engineering":
+		return "Data Engineering"
+	case "data_ai":
+		return "Data Science & AI / ML"
+	case "data_governance":
+		return "Data Management & Governance"
+	case "cloud":
+		return "Cloud Computing"
+	case "systems_network":
+		return "Systems & Network Admin"
+	case "devops_sre":
+		return "DevOps & Site Reliability (SRE)"
+	case "support_helpdesk":
+		return "IT Support & Helpdesk"
+	case "cybersecurity":
+		return "Cybersecurity"
+	case "compliance_risk":
+		return "IT Compliance & Risk"
+	case "embedded_iot":
+		return "Embedded, IoT & Robotics"
+	case "product_mgmt":
+		return "Product Management"
+	case "project_mgmt":
+		return "Project Management & Tech Comm"
 	case "design_ux":
-		return "Design & UX"
+		return "Design & User Experience"
+	case "consulting_sales":
+		return "IT Consulting & Sales"
 	default:
 		return "All Positions"
 	}
