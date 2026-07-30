@@ -31,7 +31,7 @@ func (b *Bot) handleJobsSlash(s *discordgo.Session, i *discordgo.InteractionCrea
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Components: components,
-			Flags:      discordgo.MessageFlagsIsComponentsV2,
+			Flags:      discordgo.MessageFlagsEphemeral | discordgo.MessageFlagsIsComponentsV2,
 		},
 	})
 	if err != nil {
@@ -170,9 +170,10 @@ func (b *Bot) handleSearchJobs(s *discordgo.Session, i *discordgo.InteractionCre
 	embed := buildJobEmbed(jobs[0], 1, len(jobs))
 	components := buildJobPaginationComponents(1, len(jobs), sessionKey)
 
-	msg, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+	msg, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 		Embeds:     []*discordgo.MessageEmbed{embed},
 		Components: components,
+		Flags:      discordgo.MessageFlagsEphemeral,
 	})
 	if err != nil {
 		log.Println("Search jobs followup error:", err)
