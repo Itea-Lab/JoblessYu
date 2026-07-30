@@ -55,26 +55,37 @@ for cloud architecture design or team leadership is clearly not Fresher-level.
 - "Dưới 35 tuổi" = under 35 years old → this is an age limit, NOT a level signal (ignore for level)
 
 ## Types (return exactly one)
-- Full-time, Part-time, Unknown (Note: internship status is captured under level as Intern)
+- Full-time, Part-time, Contract, Unknown (Note: internship status is captured under level as Intern)
 
 ## Expertise (return exactly one, lowercase with underscore)
-These 13 broad categories cover the Vietnam IT market. Vietnamese JDs almost always
+These 24 categories cover the Vietnam IT market. Vietnamese JDs almost always
 include English tech terms (AWS, Kubernetes, etc.), so match on those. The Vietnamese
 descriptors below help when the JD uses local job titles.
 
-- **management**: project manager, product manager, CTO, CIO, CISO, director, PMO, program manager — Vietnamese: quản lý dự án, giám đốc, trưởng phòng
+- **management**: project manager, product manager, CTO, CIO, CISO, CDO, VP, director, PMO, program manager — Vietnamese: quản lý dự án, giám đốc, trưởng phòng
 - **web_dev**: backend, frontend, fullstack, web developer, Node.js, React, Vue, Angular, HTML, CSS, JavaScript, PHP, WordPress
-- **mobile_game**: iOS, Android, mobile, Flutter, React Native, Swift, Kotlin, game, Unity, Unreal, Godot
-- **enterprise**: ERP, CRM, SAP, Oracle, RPA, low-code, banking system, Salesforce, Dynamics
+- **mobile_dev**: iOS, Android, mobile, Flutter, React Native, Swift, Kotlin, mobile developer
+- **enterprise**: ERP, CRM, SAP, Oracle, banking system, Salesforce, Dynamics, integration, legacy systems
+- **lowcode_nocode**: low-code, no-code, RPA, UiPath, Automation Anywhere, Power Apps, Mendix, OutSystems
 - **architecture**: architect, solution architect, enterprise architect, technical architect, software architect — Vietnamese: kiến trúc sư giải pháp
-- **data_ai**: data analyst, data engineer, machine learning, AI engineer, data scientist, ML, deep learning, computer vision, NLP, big data — Vietnamese: phân tích dữ liệu, khoa học dữ liệu
-- **cloud_devops**: DevOps, cloud engineer, AWS, Azure, GCP, Kubernetes, Terraform, SRE, CI/CD, Jenkins — Vietnamese: đám mây, vận hành hệ thống
+- **blockchain**: blockchain, smart contract, Solidity, Web3, crypto, Ethereum, Rust
+- **game_dev**: game, Unity, Unreal, Godot, game designer, game producer, game tester, VR, AR
+- **testing_qa**: QA, tester, test automation, quality assurance, SDET, manual testing, automation testing, PQA, performance testing — Vietnamese: kiểm thử, đảm bảo chất lượng
+- **data_analytics**: data analyst, BI analyst, BI developer, analytics engineer, data visualization, Tableau, Power BI, Looker
+- **data_engineering**: data engineer, big data, DataOps, MLOps engineer, database engineer, ETL, Spark, Hadoop, Airflow
+- **data_ai**: machine learning, AI engineer, data scientist, ML, deep learning, computer vision, NLP, AI researcher — Vietnamese: phân tích dữ liệu, khoa học dữ liệu
+- **data_governance**: data architect, data governance, data steward, data quality, DBA, database administrator
+- **cloud**: cloud engineer, AWS, Azure, GCP, cloud architect, cloud practitioner
 - **systems_network**: network engineer, system administrator, sysadmin, sysops, infrastructure, Linux administrator, Windows server — Vietnamese: quản trị mạng, quản trị hệ thống
-- **support_security**: IT support, helpdesk, security engineer, cybersecurity, penetration testing, SOC analyst, technical support — Vietnamese: hỗ trợ kỹ thuật, an ninh mạng, bảo mật
-- **embedded_iot**: embedded, firmware, IoT, robotics, real-time, microcontroller, RTOS, STM32, Arduino — Vietnamese: hệ thống nhúng
-- **testing_qa**: QA, tester, test automation, quality assurance, SDET, manual testing, automation testing — Vietnamese: kiểm thử, đảm bảo chất lượng
-- **design_ux**: UX, UI designer, product designer, graphic designer, Figma, user experience, user interface — Vietnamese: thiết kế trải nghiệm người dùng
-- **consulting_sales**: consultant, pre-sales, presales, technical account manager, solution consultant, IT consulting — Vietnamese: tư vấn giải pháp
+- **devops_sre**: DevOps, Kubernetes, Terraform, SRE, site reliability, CI/CD, Jenkins, release manager — Vietnamese: đám mây, vận hành hệ thống
+- **support_helpdesk**: IT support, helpdesk, IT administrator, field support, technical customer support — Vietnamese: hỗ trợ kỹ thuật
+- **cybersecurity**: security engineer, cybersecurity, penetration testing, SOC analyst, DevSecOps, security consultant — Vietnamese: an ninh mạng, bảo mật
+- **compliance_risk**: compliance officer, GRC specialist, IT auditor, IT risk manager, security compliance
+- **embedded_iot**: embedded, firmware, IoT, robotics, real-time, microcontroller, RTOS, STM32, Arduino, edge computing — Vietnamese: hệ thống nhúng
+- **product_mgmt**: product manager, product owner, product analyst
+- **project_mgmt**: project manager, program manager, scrum master, agile coach, BrSE, bridge system engineer, business analyst, IT communicator, technical writer
+- **design_ux**: UX, UI designer, product designer, graphic designer, Figma, user experience, motion designer, UX researcher — Vietnamese: thiết kế trải nghiệm người dùng
+- **consulting_sales**: consultant, pre-sales, presales, technical account manager, solution consultant, IT consulting, ERP consultant — Vietnamese: tư vấn giải pháp
 - **unknown**: cannot determine from the JD
 
 ## Tag categories (return only categories that have matches)

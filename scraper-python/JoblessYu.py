@@ -27,6 +27,21 @@ def compute_dedup_hash(company, title, job_type):
     return hashlib.md5(raw.encode('utf-8')).hexdigest()
 
 
+def normalize_job_type(raw_type):
+    if not raw_type:
+        return None
+    val = str(raw_type).lower().replace("-", "").replace(" ", "").replace("_", "")
+    if "fulltime" in val:
+        return "Full-time"
+    elif "parttime" in val:
+        return "Part-time"
+    elif "contract" in val:
+        return "Contract"
+    elif "intern" in val:
+        return "Internship"
+    return str(raw_type)
+
+
 def save_jobs_to_neon(jobs_df):
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
@@ -114,7 +129,7 @@ def save_jobs_to_neon(jobs_df):
                     title = _to_nullable(row["title"])
                     company = _to_nullable(row["company"])
                     location = _to_nullable(row["location"])
-                    job_type = _to_nullable(row["job_type"])
+                    job_type = normalize_job_type(_to_nullable(row["job_type"]))
                     description = _to_nullable(row["description"])
 
                     dedup_hash = compute_dedup_hash(company, title, job_type)

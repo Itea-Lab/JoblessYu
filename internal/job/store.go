@@ -163,9 +163,18 @@ func (r *JobRepository) FetchRawJobs(ctx context.Context, q JobQuery) ([]JobEntr
 		}
 	}
 	if q.JobType != "" {
-		conditions = append(conditions, fmt.Sprintf(`(job_type ILIKE $%d OR description ILIKE $%d)`, argIdx, argIdx+1))
-		args = append(args, "%"+q.JobType+"%", "%"+q.JobType+"%")
-		argIdx += 2
+		altTerm := q.JobType
+		switch strings.ToLower(strings.ReplaceAll(q.JobType, "-", "")) {
+		case "fulltime":
+			altTerm = "fulltime"
+		case "parttime":
+			altTerm = "parttime"
+		case "contract":
+			altTerm = "contract"
+		}
+		conditions = append(conditions, fmt.Sprintf(`(%s ILIKE $%d OR %s ILIKE $%d OR description ILIKE $%d)`, jobTypeExpr, argIdx, jobTypeExpr, argIdx+1, argIdx+2))
+		args = append(args, "%"+q.JobType+"%", "%"+altTerm+"%", "%"+q.JobType+"%")
+		argIdx += 3
 	}
 	switch q.Location {
 	case "HCM":
