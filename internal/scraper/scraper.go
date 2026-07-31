@@ -1,8 +1,10 @@
 package scraper
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -47,7 +49,7 @@ func NewScraperManager(
 ) *ScraperManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &ScraperManager{
-		cron:          cron.New(),
+		cron:          cron.New(cron.WithLocation(time.UTC)),
 		collyScraper:  collyScraper,
 		enricher:      enricher,
 		repo:          repo,
@@ -189,15 +191,21 @@ func (m *ScraperManager) runScrapeAndEnrich(ctx context.Context) {
 var pythonJobCountRe = regexp.MustCompile(`(\d+) jobs? upserted`)
 
 // runPythonScraper runs the Python jobspy script as a subprocess.
-// Captures stdout/stderr silently and returns the number of jobs scraped.
+// Streams stdout/stderr to os.Stdout/os.Stderr so logs are visible,
+// while capturing output to return the number of jobs scraped.
 // The script writes directly to Neon DB via psycopg.
 func (m *ScraperManager) runPythonScraper(ctx context.Context) (int, error) {
 	cmd := exec.CommandContext(ctx, m.pythonExe, m.pythonScript)
-	output, err := cmd.CombinedOutput()
+	var outBuf bytes.Buffer
+	cmd.Stdout = io.MultiWriter(os.Stdout, &outBuf)
+	cmd.Stderr = io.MultiWriter(os.Stderr, &outBuf)
+
+	err := cmd.Run()
+	output := outBuf.String()
 
 	// Parse job count from output (e.g. "40 jobs upserted to Neon.")
 	count := 0
-	if matches := pythonJobCountRe.FindStringSubmatch(string(output)); len(matches) >= 2 {
+	if matches := pythonJobCountRe.FindStringSubmatch(output); len(matches) >= 2 {
 		count, _ = strconv.Atoi(matches[1])
 	}
 
@@ -205,7 +213,7 @@ func (m *ScraperManager) runPythonScraper(ctx context.Context) (int, error) {
 		if ctx.Err() != nil {
 			return count, fmt.Errorf("jobspy aborted: %w", ctx.Err())
 		}
-		return count, fmt.Errorf("jobspy error: %w (output: %s)", err, string(output))
+		return count, fmt.Errorf("jobspy error: %w (output: %s)", err, output)
 	}
 
 	return count, nil

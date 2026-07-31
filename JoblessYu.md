@@ -1,7 +1,4 @@
-# How to Use JoblessYu 🤖
-
-JoblessYu is an intelligent IT job aggregator and search bot for Discord.
-
+# How to Use JoblessYu 
 ## Commands
 
 - `/jobs`: Open the interactive **Job Sweeper** search interface.
@@ -28,8 +25,4 @@ JoblessYu is an intelligent IT job aggregator and search bot for Discord.
 
 ## Privacy & Ephemeral Interactions
 
-> [!NOTE]
-> Both the **Job Sweeper filter interface** and all **job search result cards** are tagged as **Ephemeral (`"Only you can see this"`)**.
-> - **Privacy**: Interactions are visible strictly to the prompter who ran `/jobs`.
-> - **Zero Channel Clutter**: Keeps server channels clean and uncluttered.
-> - **Multi-User Isolation**: Multiple users can run `/jobs` concurrently without seeing each other's menus or colliding on filter states.
+Both the **Job Sweeper filter interface** and all **job search result cards** are tagged as **Ephemeral (`"Only you can see this"`)**.
