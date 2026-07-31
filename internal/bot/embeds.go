@@ -282,13 +282,31 @@ func formatJobTypePill(t string) string {
 	}
 }
 
+func sanitizeInlineValue(v, fallback string) string {
+	v = strings.ReplaceAll(v, "\r", " ")
+	v = strings.ReplaceAll(v, "\n", " ")
+	v = strings.ReplaceAll(v, "`", "'")
+	v = strings.Join(strings.Fields(strings.TrimSpace(v)), " ")
+	if v == "" {
+		return fallback
+	}
+	return v
+}
+
 func buildJobEmbed(j job.JobEntry, page, total int) *discordgo.MessageEmbed {
-	desc := fmt.Sprintf("### %s\n", j.Title) +
-		fmt.Sprintf("> Company: `%s`\n", j.Company) +
-		fmt.Sprintf("> Location: `%s`", j.Location)
+	title := sanitizeInlineValue(j.Title, "Untitled role")
+	company := sanitizeInlineValue(j.Company, "Unknown")
+	location := sanitizeInlineValue(j.Location, "Unknown")
+
+	desc := fmt.Sprintf("### %s\n", title) +
+		fmt.Sprintf("> Company: `%s`\n", company) +
+		fmt.Sprintf("> Location: `%s`", location)
 
 	if j.Salary != "" {
-		desc += fmt.Sprintf("\n> Salary: `%s`", j.Salary)
+		salary := sanitizeInlineValue(j.Salary, "")
+		if salary != "" {
+			desc += fmt.Sprintf("\n> Salary: `%s`", salary)
+		}
 	}
 	if j.Remote {
 		desc += "\n> Remote: `Yes`"
@@ -296,10 +314,10 @@ func buildJobEmbed(j job.JobEntry, page, total int) *discordgo.MessageEmbed {
 
 	var tagPills []string
 	if j.Level != "" {
-		tagPills = append(tagPills, fmt.Sprintf("`%s`", j.Level))
+		tagPills = append(tagPills, fmt.Sprintf("`%s`", sanitizeInlineValue(j.Level, "Unknown")))
 	}
 	if j.Type != "" {
-		tagPills = append(tagPills, fmt.Sprintf("`%s`", formatJobTypePill(j.Type)))
+		tagPills = append(tagPills, fmt.Sprintf("`%s`", sanitizeInlineValue(formatJobTypePill(j.Type), "Unknown")))
 	}
 	if len(j.Tags) > 0 {
 		categories := make([]string, 0, len(j.Tags))
@@ -308,7 +326,7 @@ func buildJobEmbed(j job.JobEntry, page, total int) *discordgo.MessageEmbed {
 		}
 		sort.Strings(categories)
 		for _, cat := range categories {
-			tagPills = append(tagPills, fmt.Sprintf("`%s: %s`", cat, strings.Join(j.Tags[cat], " ")))
+			tagPills = append(tagPills, fmt.Sprintf("`%s: %s`", sanitizeInlineValue(cat, "tag"), sanitizeInlineValue(strings.Join(j.Tags[cat], " "), "")))
 		}
 	}
 
