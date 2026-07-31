@@ -247,13 +247,13 @@ func (b *Bot) handlePaginationComponent(s *discordgo.Session, i *discordgo.Inter
 	}
 }
 
-func buildJobPaginationComponents(page, total int, sessionKey string, jobURL string) []discordgo.MessageComponent {
+func buildJobPaginationComponents(page, total int, sessionKey string) []discordgo.MessageComponent {
 	return []discordgo.MessageComponent{
-		discordgo.ActionsRow{Components: buildJobPaginationButtons(page, total, sessionKey, jobURL)},
+		discordgo.ActionsRow{Components: buildJobNavigationButtons(page, total, sessionKey)},
 	}
 }
 
-func buildJobPaginationButtons(page, total int, sessionKey string, jobURL string) []discordgo.MessageComponent {
+func buildJobNavigationButtons(page, total int, sessionKey string) []discordgo.MessageComponent {
 	prevID := "job_page_prev"
 	nextID := "job_page_next"
 	if sessionKey != "" {
@@ -261,14 +261,19 @@ func buildJobPaginationButtons(page, total int, sessionKey string, jobURL string
 		nextID = fmt.Sprintf("job_page_next:%s", sessionKey)
 	}
 
-	buttons := []discordgo.MessageComponent{
+	return []discordgo.MessageComponent{
 		discordgo.Button{Label: "Previous", Style: discordgo.SecondaryButton, CustomID: prevID, Disabled: page == 1},
 		discordgo.Button{Label: "Next", Style: discordgo.PrimaryButton, CustomID: nextID, Disabled: page == total},
 	}
-	if strings.TrimSpace(jobURL) != "" {
-		buttons = append(buttons, discordgo.Button{Label: "Apply on indeed", Style: discordgo.LinkButton, URL: jobURL})
+}
+
+func buildJobApplyButtonRow(jobURL string) []discordgo.MessageComponent {
+	if strings.TrimSpace(jobURL) == "" {
+		return nil
 	}
-	return buttons
+	return []discordgo.MessageComponent{
+		discordgo.Button{Label: "Apply on indeed", Style: discordgo.LinkButton, URL: jobURL},
+	}
 }
 
 
@@ -281,16 +286,21 @@ func buildJobResultV2Components(j job.JobEntry, page, total int, sessionKey stri
 	content = truncateForDiscord(content, 3900)
 
 	accentColor := 0x5865F2
+	containerComponents := []discordgo.MessageComponent{
+		discordgo.TextDisplay{Content: content},
+	}
+	if applyButtons := buildJobApplyButtonRow(j.URL); len(applyButtons) > 0 {
+		containerComponents = append(containerComponents, discordgo.ActionsRow{Components: applyButtons})
+	}
+
 	container := discordgo.Container{
 		AccentColor: &accentColor,
-		Components: []discordgo.MessageComponent{
-			discordgo.TextDisplay{Content: content},
-			discordgo.ActionsRow{Components: buildJobPaginationButtons(page, total, sessionKey, j.URL)},
-		},
+		Components:  containerComponents,
 	}
 
 	return []discordgo.MessageComponent{
 		container,
+		discordgo.ActionsRow{Components: buildJobNavigationButtons(page, total, sessionKey)},
 	}
 }
 
