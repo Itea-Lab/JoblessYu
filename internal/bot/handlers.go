@@ -168,7 +168,7 @@ func (b *Bot) handleSearchJobs(s *discordgo.Session, i *discordgo.InteractionCre
 
 	sessionKey := i.Interaction.ID
 	embed := buildJobEmbed(jobs[0], 1, len(jobs))
-	components := buildJobPaginationComponents(1, len(jobs), sessionKey)
+	components := buildJobPaginationComponents(1, len(jobs), sessionKey, jobs[0].URL)
 
 	msg, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 		Embeds:     []*discordgo.MessageEmbed{embed},
@@ -236,7 +236,7 @@ func (b *Bot) handlePaginationComponent(s *discordgo.Session, i *discordgo.Inter
 	b.cacheLock.Unlock()
 
 	embed := buildJobEmbed(jobs[page-1], page, len(jobs))
-	components := buildJobPaginationComponents(page, len(jobs), sessionKey)
+	components := buildJobPaginationComponents(page, len(jobs), sessionKey, jobs[page-1].URL)
 
 	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseUpdateMessage,
@@ -250,18 +250,24 @@ func (b *Bot) handlePaginationComponent(s *discordgo.Session, i *discordgo.Inter
 	}
 }
 
-func buildJobPaginationComponents(page, total int, sessionKey string) []discordgo.MessageComponent {
+func buildJobPaginationComponents(page, total int, sessionKey string, jobURL string) []discordgo.MessageComponent {
 	prevID := "job_page_prev"
 	nextID := "job_page_next"
 	if sessionKey != "" {
 		prevID = fmt.Sprintf("job_page_prev:%s", sessionKey)
 		nextID = fmt.Sprintf("job_page_next:%s", sessionKey)
 	}
+
+	buttons := []discordgo.MessageComponent{
+		discordgo.Button{Label: "Previous", Style: discordgo.SecondaryButton, CustomID: prevID, Disabled: page == 1},
+		discordgo.Button{Label: "Next", Style: discordgo.PrimaryButton, CustomID: nextID, Disabled: page == total},
+	}
+	if strings.TrimSpace(jobURL) != "" {
+		buttons = append(buttons, discordgo.Button{Label: "Apply on indeed", Style: discordgo.LinkButton, URL: jobURL})
+	}
+
 	return []discordgo.MessageComponent{
-		discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-			discordgo.Button{Label: "Previous", Style: discordgo.SecondaryButton, CustomID: prevID, Disabled: page == 1},
-			discordgo.Button{Label: "Next", Style: discordgo.PrimaryButton, CustomID: nextID, Disabled: page == total},
-		}},
+		discordgo.ActionsRow{Components: buttons},
 	}
 }
 
