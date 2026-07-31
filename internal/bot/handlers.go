@@ -287,6 +287,7 @@ func buildJobResultV2Components(j job.JobEntry, page, total int, sessionKey stri
 		discordgo.TextDisplay{Content: content},
 	}
 	if applyButtons := buildJobApplyButtonRow(j.URL); len(applyButtons) > 0 {
+		containerComponents = append(containerComponents, discordgo.TextDisplay{Content: "\n"})
 		containerComponents = append(containerComponents, discordgo.ActionsRow{Components: applyButtons})
 	}
 	if embed.Footer != nil && strings.TrimSpace(embed.Footer.Text) != "" {
