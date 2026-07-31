@@ -59,7 +59,7 @@ func (b *Bot) handleMessageComponent(s *discordgo.Session, i *discordgo.Interact
 	}
 
 	customID := i.MessageComponentData().CustomID
-	if strings.HasPrefix(customID, "job_page_prev") || strings.HasPrefix(customID, "job_page_next") {
+	if strings.HasPrefix(customID, "job_page_") {
 		b.handlePaginationComponent(s, i)
 		return
 	}
@@ -217,6 +217,8 @@ func (b *Bot) handlePaginationComponent(s *discordgo.Session, i *discordgo.Inter
 	}
 
 	switch action {
+	case "job_page_first":
+		page = 1
 	case "job_page_prev":
 		if page > 1 {
 			page--
@@ -225,6 +227,8 @@ func (b *Bot) handlePaginationComponent(s *discordgo.Session, i *discordgo.Inter
 		if page < len(jobs) {
 			page++
 		}
+	case "job_page_last":
+		page = len(jobs)
 	default:
 		return
 	}
@@ -254,16 +258,22 @@ func buildJobPaginationComponents(page, total int, sessionKey string) []discordg
 }
 
 func buildJobNavigationButtons(page, total int, sessionKey string) []discordgo.MessageComponent {
+	firstID := "job_page_first"
 	prevID := "job_page_prev"
 	nextID := "job_page_next"
+	lastID := "job_page_last"
 	if sessionKey != "" {
+		firstID = fmt.Sprintf("job_page_first:%s", sessionKey)
 		prevID = fmt.Sprintf("job_page_prev:%s", sessionKey)
 		nextID = fmt.Sprintf("job_page_next:%s", sessionKey)
+		lastID = fmt.Sprintf("job_page_last:%s", sessionKey)
 	}
 
 	return []discordgo.MessageComponent{
-		discordgo.Button{Label: "Previous", Style: discordgo.SecondaryButton, CustomID: prevID, Disabled: page == 1},
-		discordgo.Button{Label: "Next", Style: discordgo.PrimaryButton, CustomID: nextID, Disabled: page == total},
+		discordgo.Button{Label: "<<", Style: discordgo.SecondaryButton, CustomID: firstID, Disabled: page == 1},
+		discordgo.Button{Label: "<", Style: discordgo.SecondaryButton, CustomID: prevID, Disabled: page == 1},
+		discordgo.Button{Label: ">", Style: discordgo.PrimaryButton, CustomID: nextID, Disabled: page == total},
+		discordgo.Button{Label: ">>", Style: discordgo.PrimaryButton, CustomID: lastID, Disabled: page == total},
 	}
 }
 
