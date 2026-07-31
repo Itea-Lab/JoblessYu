@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +21,8 @@ func (b *Bot) handleInteraction(s *discordgo.Session, i *discordgo.InteractionCr
 		}
 	case discordgo.InteractionMessageComponent:
 		b.handleMessageComponent(s, i)
+	case discordgo.InteractionModalSubmit:
+		b.handleModalSubmit(s, i)
 	}
 }
 
@@ -67,6 +70,13 @@ func (b *Bot) handleMessageComponent(s *discordgo.Session, i *discordgo.Interact
 	switch customID {
 	case "select_position", "select_level", "select_location", "select_type", "trigger_job_search":
 		b.handleSweeperComponent(s, i)
+	}
+}
+
+func (b *Bot) handleModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	customID := i.ModalSubmitData().CustomID
+	if strings.HasPrefix(customID, "job_page_goto_submit") {
+		b.handlePageJumpSubmit(s, i)
 	}
 }
 
@@ -217,6 +227,9 @@ func (b *Bot) handlePaginationComponent(s *discordgo.Session, i *discordgo.Inter
 	}
 
 	switch action {
+	case "job_page_goto":
+		b.showPageJumpModal(s, i, sessionKey, page, len(jobs))
+		return
 	case "job_page_first":
 		page = 1
 	case "job_page_prev":
@@ -251,6 +264,111 @@ func (b *Bot) handlePaginationComponent(s *discordgo.Session, i *discordgo.Inter
 	}
 }
 
+func (b *Bot) showPageJumpModal(s *discordgo.Session, i *discordgo.InteractionCreate, sessionKey string, page, total int) {
+	maxDigits := len(strconv.Itoa(total))
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseModal,
+		Data: &discordgo.InteractionResponseData{
+			CustomID: fmt.Sprintf("job_page_goto_submit:%s", sessionKey),
+			Title:    fmt.Sprintf("Go to page (1-%d)", total),
+			Components: []discordgo.MessageComponent{
+				discordgo.ActionsRow{Components: []discordgo.MessageComponent{
+					discordgo.TextInput{
+						CustomID:    "job_page_number",
+						Label:       "Page number",
+						Style:       discordgo.TextInputShort,
+						Placeholder: fmt.Sprintf("Enter a number from 1 to %d", total),
+						Value:       strconv.Itoa(page),
+						Required:    true,
+						MinLength:   1,
+						MaxLength:   maxDigits,
+					},
+				}},
+			},
+		},
+	})
+	if err != nil {
+		log.Println("Page jump modal error:", err)
+	}
+}
+
+func (b *Bot) handlePageJumpSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	action, sessionKey, ok := strings.Cut(i.ModalSubmitData().CustomID, ":")
+	if !ok || action != "job_page_goto_submit" || sessionKey == "" {
+		return
+	}
+
+	b.cacheLock.RLock()
+	cached, ok := b.jobsCache[sessionKey]
+	b.cacheLock.RUnlock()
+	jobs := cached.jobs
+	if !ok || len(jobs) == 0 {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "This job list has expired. Please run /jobs again.",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+
+	pageRaw := extractPageNumberInput(i.ModalSubmitData().Components)
+	page, err := strconv.Atoi(strings.TrimSpace(pageRaw))
+	if err != nil || page < 1 || page > len(jobs) {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: fmt.Sprintf("Please enter a valid page number between 1 and %d.", len(jobs)),
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+
+	b.cacheLock.Lock()
+	b.jobsCache[sessionKey] = cachedJobs{jobs: jobs, currentPage: page, insertedAt: time.Now()}
+	b.cacheLock.Unlock()
+
+	components := buildJobResultV2Components(jobs[page-1], page, len(jobs), sessionKey)
+	err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseUpdateMessage,
+		Data: &discordgo.InteractionResponseData{
+			Components: components,
+			Flags:      discordgo.MessageFlagsIsComponentsV2,
+		},
+	})
+	if err != nil {
+		log.Println("Page jump update error:", err)
+	}
+}
+
+func extractPageNumberInput(components []discordgo.MessageComponent) string {
+	for _, c := range components {
+		switch row := c.(type) {
+		case discordgo.ActionsRow:
+			for _, inner := range row.Components {
+				switch input := inner.(type) {
+				case discordgo.TextInput:
+					return input.Value
+				case *discordgo.TextInput:
+					return input.Value
+				}
+			}
+		case *discordgo.ActionsRow:
+			for _, inner := range row.Components {
+				switch input := inner.(type) {
+				case discordgo.TextInput:
+					return input.Value
+				case *discordgo.TextInput:
+					return input.Value
+				}
+			}
+		}
+	}
+	return ""
+}
+
 func buildJobPaginationComponents(page, total int, sessionKey string) []discordgo.MessageComponent {
 	return []discordgo.MessageComponent{
 		discordgo.ActionsRow{Components: buildJobNavigationButtons(page, total, sessionKey)},
@@ -260,11 +378,13 @@ func buildJobPaginationComponents(page, total int, sessionKey string) []discordg
 func buildJobNavigationButtons(page, total int, sessionKey string) []discordgo.MessageComponent {
 	firstID := "job_page_first"
 	prevID := "job_page_prev"
+	gotoID := "job_page_goto"
 	nextID := "job_page_next"
 	lastID := "job_page_last"
 	if sessionKey != "" {
 		firstID = fmt.Sprintf("job_page_first:%s", sessionKey)
 		prevID = fmt.Sprintf("job_page_prev:%s", sessionKey)
+		gotoID = fmt.Sprintf("job_page_goto:%s", sessionKey)
 		nextID = fmt.Sprintf("job_page_next:%s", sessionKey)
 		lastID = fmt.Sprintf("job_page_last:%s", sessionKey)
 	}
@@ -272,6 +392,7 @@ func buildJobNavigationButtons(page, total int, sessionKey string) []discordgo.M
 	return []discordgo.MessageComponent{
 		discordgo.Button{Label: "<<", Style: discordgo.SecondaryButton, CustomID: firstID, Disabled: page == 1},
 		discordgo.Button{Label: "<", Style: discordgo.SecondaryButton, CustomID: prevID, Disabled: page == 1},
+		discordgo.Button{Label: fmt.Sprintf("%d/%d", page, total), Style: discordgo.SecondaryButton, CustomID: gotoID, Disabled: total <= 1},
 		discordgo.Button{Label: ">", Style: discordgo.PrimaryButton, CustomID: nextID, Disabled: page == total},
 		discordgo.Button{Label: ">>", Style: discordgo.PrimaryButton, CustomID: lastID, Disabled: page == total},
 	}
