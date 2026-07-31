@@ -167,13 +167,11 @@ func (b *Bot) handleSearchJobs(s *discordgo.Session, i *discordgo.InteractionCre
 	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Components: &criteriaComponents})
 
 	sessionKey := i.Interaction.ID
-	embed := buildJobEmbed(jobs[0], 1, len(jobs))
-	components := buildJobPaginationComponents(1, len(jobs), sessionKey, jobs[0].URL)
+	components := buildJobResultV2Components(jobs[0], 1, len(jobs), sessionKey)
 
 	msg, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
-		Embeds:     []*discordgo.MessageEmbed{embed},
 		Components: components,
-		Flags:      discordgo.MessageFlagsEphemeral,
+		Flags:      discordgo.MessageFlagsEphemeral | discordgo.MessageFlagsIsComponentsV2,
 	})
 	if err != nil {
 		log.Println("Search jobs followup error:", err)
@@ -235,14 +233,13 @@ func (b *Bot) handlePaginationComponent(s *discordgo.Session, i *discordgo.Inter
 	b.jobsCache[sessionKey] = cachedJobs{jobs: jobs, currentPage: page, insertedAt: time.Now()}
 	b.cacheLock.Unlock()
 
-	embed := buildJobEmbed(jobs[page-1], page, len(jobs))
-	components := buildJobPaginationComponents(page, len(jobs), sessionKey, jobs[page-1].URL)
+	components := buildJobResultV2Components(jobs[page-1], page, len(jobs), sessionKey)
 
 	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseUpdateMessage,
 		Data: &discordgo.InteractionResponseData{
-			Embeds:     []*discordgo.MessageEmbed{embed},
 			Components: components,
+			Flags:      discordgo.MessageFlagsIsComponentsV2,
 		},
 	})
 	if err != nil {
@@ -251,6 +248,12 @@ func (b *Bot) handlePaginationComponent(s *discordgo.Session, i *discordgo.Inter
 }
 
 func buildJobPaginationComponents(page, total int, sessionKey string, jobURL string) []discordgo.MessageComponent {
+	return []discordgo.MessageComponent{
+		discordgo.ActionsRow{Components: buildJobPaginationButtons(page, total, sessionKey, jobURL)},
+	}
+}
+
+func buildJobPaginationButtons(page, total int, sessionKey string, jobURL string) []discordgo.MessageComponent {
 	prevID := "job_page_prev"
 	nextID := "job_page_next"
 	if sessionKey != "" {
@@ -265,9 +268,29 @@ func buildJobPaginationComponents(page, total int, sessionKey string, jobURL str
 	if strings.TrimSpace(jobURL) != "" {
 		buttons = append(buttons, discordgo.Button{Label: "Apply on indeed", Style: discordgo.LinkButton, URL: jobURL})
 	}
+	return buttons
+}
+
+
+func buildJobResultV2Components(j job.JobEntry, page, total int, sessionKey string) []discordgo.MessageComponent {
+	embed := buildJobEmbed(j, page, total)
+	content := fmt.Sprintf("## %s\n\n%s", embed.Title, embed.Description)
+	if embed.Footer != nil && strings.TrimSpace(embed.Footer.Text) != "" {
+		content += "\n\n" + embed.Footer.Text
+	}
+	content = truncateForDiscord(content, 3900)
+
+	accentColor := 0x5865F2
+	container := discordgo.Container{
+		AccentColor: &accentColor,
+		Components: []discordgo.MessageComponent{
+			discordgo.TextDisplay{Content: content},
+			discordgo.ActionsRow{Components: buildJobPaginationButtons(page, total, sessionKey, j.URL)},
+		},
+	}
 
 	return []discordgo.MessageComponent{
-		discordgo.ActionsRow{Components: buttons},
+		container,
 	}
 }
 
