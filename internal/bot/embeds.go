@@ -319,14 +319,6 @@ func buildJobEmbed(j job.JobEntry, page, total int) *discordgo.MessageEmbed {
 	if j.Summary != "" {
 		desc += fmt.Sprintf("\n\n**Overview:**\n%s", j.Summary)
 	}
-
-	applyLinks := []string{fmt.Sprintf("[Apply on %s](%s)", strings.Title(j.Site), j.URL)}
-	for _, alt := range j.AlternateURLs {
-		if alt.URL != "" && alt.Site != "" {
-			applyLinks = append(applyLinks, fmt.Sprintf("[%s](%s)", strings.Title(alt.Site), alt.URL))
-		}
-	}
-	desc += "\n\n" + strings.Join(applyLinks, " • ")
 	desc = truncateForDiscord(desc, 3900)
 
 	return &discordgo.MessageEmbed{
