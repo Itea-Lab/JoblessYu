@@ -280,9 +280,6 @@ func buildJobApplyButtonRow(jobURL string) []discordgo.MessageComponent {
 func buildJobResultV2Components(j job.JobEntry, page, total int, sessionKey string) []discordgo.MessageComponent {
 	embed := buildJobEmbed(j, page, total)
 	content := fmt.Sprintf("## %s\n\n%s", embed.Title, embed.Description)
-	if embed.Footer != nil && strings.TrimSpace(embed.Footer.Text) != "" {
-		content += "\n\n" + embed.Footer.Text
-	}
 	content = truncateForDiscord(content, 3900)
 
 	accentColor := 0x5865F2
@@ -291,6 +288,9 @@ func buildJobResultV2Components(j job.JobEntry, page, total int, sessionKey stri
 	}
 	if applyButtons := buildJobApplyButtonRow(j.URL); len(applyButtons) > 0 {
 		containerComponents = append(containerComponents, discordgo.ActionsRow{Components: applyButtons})
+	}
+	if embed.Footer != nil && strings.TrimSpace(embed.Footer.Text) != "" {
+		containerComponents = append(containerComponents, discordgo.TextDisplay{Content: embed.Footer.Text})
 	}
 
 	container := discordgo.Container{
