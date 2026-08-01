@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -398,15 +399,41 @@ func buildJobNavigationButtons(page, total int, sessionKey string) []discordgo.M
 	}
 }
 
-func buildJobApplyButtonRow(jobURL string) []discordgo.MessageComponent {
+func buildJobApplyButtonRow(jobURL, site string) []discordgo.MessageComponent {
 	if strings.TrimSpace(jobURL) == "" {
 		return nil
 	}
+	label := "Apply now"
+	if siteLabel := deriveApplySiteLabel(site, jobURL); siteLabel != "" {
+		label = fmt.Sprintf("Apply on %s", siteLabel)
+	}
 	return []discordgo.MessageComponent{
-		discordgo.Button{Label: "Apply on indeed", Style: discordgo.LinkButton, URL: jobURL},
+		discordgo.Button{Label: label, Style: discordgo.LinkButton, URL: jobURL},
 	}
 }
 
+func deriveApplySiteLabel(site, jobURL string) string {
+	if s := strings.ToLower(strings.TrimSpace(site)); s != "" {
+		return s
+	}
+
+	u, err := url.Parse(strings.TrimSpace(jobURL))
+	if err != nil {
+		return ""
+	}
+
+	host := strings.ToLower(strings.TrimSpace(u.Hostname()))
+	host = strings.TrimPrefix(host, "www.")
+	if host == "" {
+		return ""
+	}
+
+	parts := strings.Split(host, ".")
+	if len(parts) >= 2 {
+		return parts[len(parts)-2]
+	}
+	return host
+}
 
 func buildJobResultV2Components(j job.JobEntry, page, total int, sessionKey string) []discordgo.MessageComponent {
 	embed := buildJobEmbed(j, page, total)
@@ -417,7 +444,7 @@ func buildJobResultV2Components(j job.JobEntry, page, total int, sessionKey stri
 	containerComponents := []discordgo.MessageComponent{
 		discordgo.TextDisplay{Content: content},
 	}
-	if applyButtons := buildJobApplyButtonRow(j.URL); len(applyButtons) > 0 {
+	if applyButtons := buildJobApplyButtonRow(j.URL, j.Site); len(applyButtons) > 0 {
 		containerComponents = append(containerComponents, discordgo.ActionsRow{Components: applyButtons})
 	}
 	if embed.Footer != nil && strings.TrimSpace(embed.Footer.Text) != "" {
