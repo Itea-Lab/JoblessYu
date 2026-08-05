@@ -8,8 +8,8 @@ JoblessYu is a Discord bot built in Go that scrapes IT job listings from Vietnam
 DAILY 5:00 AM ICT (automated cron)
     │
     ├── 1. SCRAPE
-    │      ├── Python jobspy  → Indeed (20 jobs) + LinkedIn (20 jobs)
-    │      ├── Go Colly        → ITViec (20 jobs, 24h freshness filter)
+    │      ├── Python jobspy  → Indeed (40 jobs) + LinkedIn (40 jobs)
+    │      ├── Go Colly        → ITViec (40 jobs, 24h freshness filter)
     │      └── Cross-Site Deduplication (7-day window → merges alternate URLs)
     │
     ├── 2. AI ENRICHMENT (Groq — llama-3.1-8b-instant)
@@ -80,8 +80,14 @@ go mod download
 ### 2. Python scraper setup
 
 ```bash
+# On Linux/macOS:
 python3 -m venv scraper-python/.venv
 source scraper-python/.venv/bin/activate
+pip install -r scraper-python/requirements.txt
+
+# On Windows (PowerShell):
+py -3.13 -m venv scraper-python\.venv
+.\scraper-python\.venv\Scripts\Activate.ps1
 pip install -r scraper-python/requirements.txt
 ```
 
@@ -115,8 +121,8 @@ make bot
 ### Daily pipeline (5:00 AM ICT)
 
 1. **Scrape (JobSpy + Colly)**
-   - Python JobSpy scrapes Indeed + LinkedIn (20 jobs each, posts from last 24 hours) using ITViec's canonical IT search query and non-IT title filters
-   - Go Colly scrapes ITViec (20 jobs, filtered by "Posted X ago" ≤ 24h)
+   - Python JobSpy scrapes Indeed + LinkedIn (40 jobs each, posts from last 24 hours) using ITViec's canonical IT search query and non-IT title filters
+   - Go Colly scrapes ITViec (40 jobs, filtered by "Posted X ago" ≤ 24h)
    - Cross-site deduplication computes `dedup_hash` (Company + Title + JobType) over a 7-day window, merging duplicate multi-platform URLs into `alternate_urls` JSONB
 
 2. **AI Enrichment (Groq)**

@@ -360,15 +360,32 @@ func (r *JobRepository) DeleteOldJobs(ctx context.Context, retentionDays int) (i
 	return tag.RowsAffected(), nil
 }
 
+type UpsertStats struct {
+	Inserted int
+	Merged   int
+}
+
+// CountEnrichmentStats returns the number of pending (un-enriched) jobs and
+// already-enriched jobs in the database.
+func (r *JobRepository) CountEnrichmentStats(ctx context.Context) (unenriched int, enriched int, err error) {
+	err = r.pool.QueryRow(ctx, `
+		SELECT 
+			COUNT(*) FILTER (WHERE ai_processed_at IS NULL),
+			COUNT(*) FILTER (WHERE ai_processed_at IS NOT NULL)
+		FROM jobs
+	`).Scan(&unenriched, &enriched)
+	return unenriched, enriched, err
+}
+
 // UpsertJobs bulk-inserts scraped jobs, updating existing rows on conflict.
 // If the job description changes (employer updated the JD), all AI enrichment
 // fields are reset to NULL — forcing re-enrichment in the next batch.
-func (r *JobRepository) UpsertJobs(ctx context.Context, jobs []JobEntry) (int, error) {
+func (r *JobRepository) UpsertJobs(ctx context.Context, jobs []JobEntry) (UpsertStats, error) {
+	var stats UpsertStats
 	if len(jobs) == 0 {
-		return 0, nil
+		return stats, nil
 	}
 
-	inserted := 0
 	for _, j := range jobs {
 		comp := strings.TrimSpace(j.Company)
 		if idx := strings.Index(comp, "\n"); idx >= 0 {
@@ -418,8 +435,10 @@ func (r *JobRepository) UpsertJobs(ctx context.Context, jobs []JobEntry) (int, e
 					`UPDATE jobs SET alternate_urls = $1, fetched_at = NOW() WHERE id = $2`,
 					newAltJSON, existingID,
 				)
+				stats.Merged++
+			} else {
+				stats.Merged++
 			}
-			inserted++
 			continue
 		}
 
@@ -457,7 +476,7 @@ func (r *JobRepository) UpsertJobs(ctx context.Context, jobs []JobEntry) (int, e
 			log.Printf("UpsertJobs: error on %s (skipping): %v", j.URL, err)
 			continue
 		}
-		inserted++
+		stats.Inserted++
 	}
-	return inserted, nil
+	return stats, nil
 }

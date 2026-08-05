@@ -115,7 +115,8 @@ def save_jobs_to_neon(jobs_df):
     """
 
     print("Connecting to NeonDB...", flush=True)
-    saved_count = 0
+    inserted_count = 0
+    merged_count = 0
     try:
         with psycopg.connect(database_url, connect_timeout=10) as conn:
             print("Connected to NeonDB. Creating table...", flush=True)
@@ -143,22 +144,23 @@ def save_jobs_to_neon(jobs_df):
                         if not already_present:
                             alt_list.append({"site": site, "url": job_url})
                             cur.execute(update_alt_sql, (json.dumps(alt_list), existing_id))
-                        saved_count += 1
+                            merged_count += 1
                         continue
 
                     cur.execute(insert_sql, (raw_id, site, job_url, title, company, location, job_type, description, dedup_hash))
-                    saved_count += 1
+                    inserted_count += 1
             conn.commit()
-        print(f"{saved_count} jobs upserted to Neon.", flush=True)
+        total_upserted = inserted_count + merged_count
+        print(f"[JobSpy] Upserted to NeonDB: {total_upserted} total ({inserted_count} new inserted, {merged_count} duplicate alternate URLs merged).", flush=True)
     except Exception as e:
         print("Error connecting to NeonDB:", e, flush=True)
         raise
 
 
 def JobScan():
-    print("JoblessYu is looking for jobs =w=")
+    print("[JobSpy] Starting search for Indeed and LinkedIn jobs...", flush=True)
 
-    # Scrape jobs using JobSpy — daily, 20 per site (20 Indeed + 20 LinkedIn).
+    # Scrape jobs using JobSpy — daily, 40 per site (40 Indeed + 40 LinkedIn).
     # Uses ITViec canonical tech role search query to prevent non-IT noise.
     search_term = (
         '"software engineer" OR "software developer" OR "backend" OR "frontend" OR '
@@ -171,13 +173,13 @@ def JobScan():
         site_name=["indeed", "linkedin"],
         search_term=search_term,
         location="vietnam",
-        results_wanted=20,
+        results_wanted=40,
         hours_old=24,
         country_indeed='vietnam',
     )
 
     if jobs.empty:
-        print("There are no jobs at the moment :c")
+        print("[JobSpy] No jobs found at the moment.", flush=True)
         return
 
     # Pandas DataFrame to JSON
@@ -200,7 +202,7 @@ def JobScan():
     jobs = jobs[~jobs["title"].str.lower().str.contains(exclusion_pattern, regex=True, na=False)]
 
     if jobs.empty:
-        print("There are no valid IT jobs at the moment :c")
+        print("[JobSpy] No valid IT jobs after filtering.", flush=True)
         return
 
     save_jobs_to_neon(jobs)

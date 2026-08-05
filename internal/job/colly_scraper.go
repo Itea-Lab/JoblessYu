@@ -14,7 +14,7 @@ import (
 
 const (
 	itviecListingURL = "https://itviec.com/it-jobs"
-	itviecMaxJobs    = 20
+	itviecMaxJobs    = 40
 	itviecDelay      = 2 * time.Second
 )
 

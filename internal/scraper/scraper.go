@@ -87,6 +87,10 @@ func (m *ScraperManager) resolveScriptPath() string {
 func (m *ScraperManager) resolvePythonExe() string {
 	scriptDir := filepath.Dir(m.pythonScript)
 	for _, venvPath := range []string{
+		filepath.Join(scriptDir, ".venv", "Scripts", "python.exe"),
+		filepath.Join(scriptDir, ".venv", "Scripts", "python"),
+		filepath.Join(scriptDir, "venv", "Scripts", "python.exe"),
+		filepath.Join(scriptDir, "venv", "Scripts", "python"),
 		filepath.Join(scriptDir, ".venv", "bin", "python3"),
 		filepath.Join(scriptDir, ".venv", "bin", "python"),
 		filepath.Join(scriptDir, "venv", "bin", "python3"),
@@ -123,7 +127,12 @@ func (m *ScraperManager) StartSchedule() {
 		slog.Warn("Failed to schedule scrape cron", "err", err)
 	}
 
-	slog.Info("Scraper scheduled: daily 05:00 ICT (jobspy + Colly + enrich), weekly Mon 04:55 ICT (cleanup)", "retention_days", m.retentionDays)
+	fmt.Println("+--------------------------------------------------------------------------------+")
+	fmt.Println("| JOBLESSYU SCRAPER SCHEDULE ACTIVATED                                           |")
+	fmt.Println("+--------------------------------------------------------------------------------+")
+	fmt.Println("| Daily Scrape:   05:00 ICT (22:00 UTC) (40 ITViec + 40 Indeed + 40 LinkedIn)    |")
+	fmt.Printf("| Weekly Cleanup: Mon 04:55 ICT (Sun 21:55 UTC) (Retention: %d days)             |\n", m.retentionDays)
+	fmt.Println("+--------------------------------------------------------------------------------+")
 	m.cron.Start()
 }
 
@@ -140,51 +149,106 @@ func (m *ScraperManager) RunScrapeAndEnrich(ctx context.Context) {
 	m.runScrapeAndEnrich(ctx)
 }
 
-// runScrapeAndEnrich runs the full daily pipeline with clean phased output:
-// 1. Python jobspy (Indeed + LinkedIn) → writes to DB
-// 2. Go Colly (ITViec) → returns jobs → Go upserts
+// runScrapeAndEnrich runs the full daily pipeline with formatted box-drawing logs:
+// 1. Python jobspy (Indeed + LinkedIn) -> writes to DB
+// 2. Go Colly (ITViec) -> returns jobs -> Go upserts
 // 3. Upload to DB
 // 4. Batch AI enrichment
 func (m *ScraperManager) runScrapeAndEnrich(ctx context.Context) {
 	m.runMu.Lock()
 	defer m.runMu.Unlock()
 
+	pipelineStart := time.Now()
+	timestampStr := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
+
+	fmt.Println()
+	fmt.Println("+--------------------------------------------------------------------------------+")
+	fmt.Println("| PIPELINE RUN: Daily Job Scrape & AI Enrichment                                 |")
+	fmt.Printf("| Triggered: %-67s |\n", timestampStr)
+	fmt.Println("+--------------------------------------------------------------------------------+")
+
 	// Phase 1: jobspy (Indeed + LinkedIn)
-	slog.Info("[1/4] Scraping Indeed + LinkedIn (jobspy)...")
+	fmt.Println()
+	fmt.Println("+--- [1/4] SCRAPING (Indeed & LinkedIn via JobSpy) -------------------------------+")
+	fmt.Println("| Target: 40 Indeed + 40 LinkedIn jobs                                           |")
 	jobspyStart := time.Now()
-	jobspyCount, err := m.runPythonScraper(ctx)
-	if err != nil {
-		slog.Warn("jobspy error", "err", err)
+	jobspyCount, jobspyErr := m.runPythonScraper(ctx)
+	jobspyDuration := time.Since(jobspyStart).Round(100 * time.Millisecond)
+	jobspyStatus := "SUCCESS"
+	if jobspyErr != nil {
+		jobspyStatus = "FAILED"
+		fmt.Printf("| Warning: JobSpy error: %v\n", jobspyErr)
 	}
-	slog.Info("jobspy done", "jobs", jobspyCount, "elapsed", time.Since(jobspyStart).Round(time.Second))
+	fmt.Printf("| Status: %-7s | Completed in %-6s | Scraped: %d jobs                          |\n", jobspyStatus, jobspyDuration.String(), jobspyCount)
+	fmt.Println("+--------------------------------------------------------------------------------+")
 
 	// Phase 2: Colly (ITViec)
-	slog.Info("[2/4] Scraping ITViec (Colly)...")
+	fmt.Println()
+	fmt.Println("+--- [2/4] SCRAPING (ITViec via Colly) ------------------------------------------+")
+	fmt.Println("| Target: 40 ITViec jobs (Freshness <= 24h)                                      |")
 	collyStart := time.Now()
-	itviecJobs, err := m.collyScraper.ScrapeITViec(ctx)
-	if err != nil {
-		slog.Warn("Colly error", "err", err)
+	itviecJobs, collyErr := m.collyScraper.ScrapeITViec(ctx)
+	collyDuration := time.Since(collyStart).Round(100 * time.Millisecond)
+	collyStatus := "SUCCESS"
+	if collyErr != nil {
+		collyStatus = "FAILED"
+		fmt.Printf("| Warning: Colly error: %v\n", collyErr)
 	}
-	slog.Info("Colly done", "jobs", len(itviecJobs), "elapsed", time.Since(collyStart).Round(time.Second))
+	fmt.Printf("| Status: %-7s | Completed in %-6s | Scraped: %d jobs                          |\n", collyStatus, collyDuration.String(), len(itviecJobs))
+	fmt.Println("+--------------------------------------------------------------------------------+")
 
 	// Phase 3: Upload to DB
-	slog.Info("[3/4] Uploading to Neon DB...")
-	uploaded, err := m.repo.UpsertJobs(ctx, itviecJobs)
-	if err != nil {
-		slog.Warn("Upload error", "err", err)
+	fmt.Println()
+	fmt.Println("+--- [3/4] DATABASE UPSERT (Neon PostgreSQL) ------------------------------------+")
+	dbStart := time.Now()
+	stats, dbErr := m.repo.UpsertJobs(ctx, itviecJobs)
+	dbDuration := time.Since(dbStart).Round(100 * time.Millisecond)
+	dbStatus := "SUCCESS"
+	if dbErr != nil {
+		dbStatus = "FAILED"
+		fmt.Printf("| Warning: Upload error: %v\n", dbErr)
 	}
-	slog.Info("Upload done", "upserted", uploaded)
+
+	unenrichedCount, enrichedCount, _ := m.repo.CountEnrichmentStats(ctx)
+	fmt.Printf("| ITViec DB Upsert: %d new inserted, %d merged into alternate_urls              |\n", stats.Inserted, stats.Merged)
+	fmt.Printf("| DB Enrichment Queue: %d pending AI enrichment, %d already enriched              |\n", unenrichedCount, enrichedCount)
+	fmt.Printf("| Status: %-7s | Completed in %-6s                                            |\n", dbStatus, dbDuration.String())
+	fmt.Println("+--------------------------------------------------------------------------------+")
 
 	// Phase 4: AI Enrichment
-	slog.Info("[4/4] AI Enrichment (Groq)...")
+	fmt.Println()
+	fmt.Println("+--- [4/4] AI ENRICHMENT (Groq llama-3.1-8b-instant) ---------------------------+")
+	fmt.Printf("| Queue: %d jobs pending AI enrichment (%d previously enriched jobs skipped)      |\n", unenrichedCount, enrichedCount)
 	enrichCtx, enrichCancel := context.WithTimeout(ctx, 2*time.Hour)
 	defer enrichCancel()
 
 	enrichStart := time.Now()
-	if err := m.enricher.Run(enrichCtx); err != nil {
-		slog.Warn("Enrichment error", "err", err)
+	enrichErr := m.enricher.Run(enrichCtx)
+	enrichDuration := time.Since(enrichStart).Round(100 * time.Millisecond)
+	enrichStatus := "SUCCESS"
+	if enrichErr != nil {
+		enrichStatus = "FAILED"
+		fmt.Printf("| Warning: Enrichment error: %v\n", enrichErr)
 	}
-	slog.Info("Enrichment done", "elapsed", time.Since(enrichStart).Round(time.Second))
+	fmt.Printf("| Status: %-7s | Completed in %-6s                                            |\n", enrichStatus, enrichDuration.String())
+	fmt.Println("+--------------------------------------------------------------------------------+")
+
+	// Summary Table
+	totalDuration := time.Since(pipelineStart).Round(100 * time.Millisecond)
+	fmt.Println()
+	fmt.Println("+--------------------------------------------------------------------------------+")
+	fmt.Println("| JOBLESSYU PIPELINE SUMMARY REPORT                                              |")
+	fmt.Println("+----------------------+---------+--------------------------------+--------------+")
+	fmt.Println("| Step                 | Status  | Detail                         | Duration     |")
+	fmt.Println("+----------------------+---------+--------------------------------+--------------+")
+	fmt.Printf("| JobSpy (Py)          | %-7s | %-30s | %-12s |\n", jobspyStatus, fmt.Sprintf("%d jobs scraped", jobspyCount), jobspyDuration.String())
+	fmt.Printf("| Colly (Go)           | %-7s | %-30s | %-12s |\n", collyStatus, fmt.Sprintf("%d jobs scraped", len(itviecJobs)), collyDuration.String())
+	fmt.Printf("| Neon DB Upsert       | %-7s | %-30s | %-12s |\n", dbStatus, fmt.Sprintf("%d new, %d merged", stats.Inserted, stats.Merged), dbDuration.String())
+	fmt.Printf("| Groq AI Enrichment   | %-7s | %-30s | %-12s |\n", enrichStatus, fmt.Sprintf("%d jobs in batch", unenrichedCount), enrichDuration.String())
+	fmt.Println("+----------------------+---------+--------------------------------+--------------+")
+	fmt.Printf("| TOTAL EXECUTION TIME: %-56s |\n", totalDuration.String())
+	fmt.Println("+--------------------------------------------------------------------------------+")
+	fmt.Println()
 }
 
 // pythonJobCountRe matches "40 jobs upserted to Neon." from jobspy output.
@@ -224,11 +288,16 @@ func (m *ScraperManager) runCleanup(ctx context.Context) {
 	m.runMu.Lock()
 	defer m.runMu.Unlock()
 
-	slog.Info("Starting cleanup", "retention_days", m.retentionDays)
+	fmt.Println()
+	fmt.Println("+--------------------------------------------------------------------------------+")
+	fmt.Println("| CLEANUP RUN: Weekly Job Retention Maintenance                                  |")
+	fmt.Printf("| Retention Window: %d Days                                                     |\n", m.retentionDays)
 	deleted, err := m.repo.DeleteOldJobs(ctx, m.retentionDays)
 	if err != nil {
-		slog.Warn("Cleanup error", "err", err)
-		return
+		fmt.Printf("| Status: FAILED | Error: %v\n", err)
+	} else {
+		fmt.Printf("| Status: SUCCESS | Deleted: %d old jobs                                        |\n", deleted)
 	}
-	slog.Info("Cleanup done", "deleted", deleted)
+	fmt.Println("+--------------------------------------------------------------------------------+")
+	fmt.Println()
 }
