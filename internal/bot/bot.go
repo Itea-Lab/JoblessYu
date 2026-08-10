@@ -210,16 +210,22 @@ func (b *Bot) Start() error {
 						<-b.stopJanitor
 						cancel()
 					}()
+					var debounceTimer *time.Timer
 					statsService.ListenForJobChanges(ctx, func() {
-						rCtx, rCancel := context.WithTimeout(context.Background(), 10*time.Second)
-						defer rCancel()
-						details := b.fetchStatusDetails(rCtx)
-						_ = b.notifier.UpdateStatusCard(true, details)
-						summary := b.fetchDailySummaryDetails(rCtx)
-						if summary.TotalActiveJobs == 0 {
-							summary.TotalActiveJobs = details.ActiveJobs
+						if debounceTimer != nil {
+							debounceTimer.Stop()
 						}
-						_ = b.notifier.UpdateDailySummaryCard(summary)
+						debounceTimer = time.AfterFunc(500*time.Millisecond, func() {
+							rCtx, rCancel := context.WithTimeout(context.Background(), 10*time.Second)
+							defer rCancel()
+							details := b.fetchStatusDetails(rCtx)
+							_ = b.notifier.UpdateStatusCard(true, details)
+							summary := b.fetchDailySummaryDetails(rCtx)
+							if summary.TotalActiveJobs == 0 {
+								summary.TotalActiveJobs = details.ActiveJobs
+							}
+							_ = b.notifier.UpdateDailySummaryCard(summary)
+						})
 					})
 				}()
 			}
