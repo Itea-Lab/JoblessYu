@@ -1,30 +1,30 @@
-# Stage 1: Build
-FROM golang:alpine AS builder
+# Stage 1: Build Go Binary
+FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
-
-# Copy go.mod and go.sum first
 COPY go.mod go.sum ./
 RUN go mod download
-
-# Copy all source code
 COPY . .
-
-# CGO_ENABLED=0: Create a static binary (statically linked), independent of external C libraries
-# GOOS=linux: Ensure the build file runs on the Linux operating system
-# -ldflags="-w -s": Remove debug information to significantly reduce file size
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o joblessyu-bot ./cmd/bot
 
-# Stage 2: Final Image
-FROM alpine:latest
-
-# Install SSL/TLS certificates and time zone
-RUN apk --no-cache add ca-certificates tzdata
+# Stage 2: Final Hybrid Container (Go + Python JobSpy Runtime)
+FROM python:3.11-alpine
 
 WORKDIR /app
 
-# Copy binary from build stage
-COPY --from=builder /app/joblessyu-bot .
+# Install SSL certificates, timezone, and C build toolchain for Python native extensions
+RUN apk add --no-cache ca-certificates tzdata build-base libffi-dev
 
-# Run the bot
+# Install Python scraper dependencies
+COPY scraper-python/requirements.txt ./scraper-python/requirements.txt
+RUN pip install --no-cache-dir -r ./scraper-python/requirements.txt
+
+# Copy Go binary, Python scraper script, and migrations
+COPY --from=builder /app/joblessyu-bot .
+COPY scraper-python/ ./scraper-python/
+COPY migrations/ ./migrations/
+
+# Expose lightweight HTTP healthcheck port for Cloud Run / K8s readiness probes
+EXPOSE 8080
+
 CMD ["./joblessyu-bot"]

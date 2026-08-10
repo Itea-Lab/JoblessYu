@@ -79,80 +79,29 @@ func (e *BatchEnricher) Run(ctx context.Context) error {
 		}
 	}
 
-	// Step 2: Process in 3-job chunks if BatchExtractor is available (strictly respects Groq 6000 TPM limit ~2425 tokens)
-	batchExtractor, isBatchSupported := e.extractor.(BatchExtractor)
-	const batchChunkSize = 3
-
-	for idx := 0; idx < len(validJobs); {
+	// Step 2: Process 1 job per request (with 18s throttle) to strictly prevent Groq 429/413 token limit errors
+	for idx, j := range validJobs {
 		if ctx.Err() != nil {
-			slog.Warn("enricher: context cancelled, stopping batch", "processed", idx, "remaining", len(validJobs)-idx)
+			slog.Warn("enricher: context cancelled, stopping enrichment", "processed", idx, "remaining", len(validJobs)-idx)
 			break
 		}
 
-		end := idx + batchChunkSize
-		if end > len(validJobs) {
-			end = len(validJobs)
-		}
-		chunk := validJobs[idx:end]
-
-		var metas []JobMeta
-		var batchErr error
-
-		if isBatchSupported && len(chunk) > 1 {
-			items := make([]JobBatchItem, len(chunk))
-			for k, j := range chunk {
-				items[k] = JobBatchItem{ID: j.ID, Title: j.Title, Description: j.Description}
-			}
-			metas, batchErr = batchExtractor.ExtractBatch(ctx, items)
+		meta, err := e.enrichWithRetry(ctx, j)
+		if err != nil {
+			slog.Warn("enricher: job enrichment failed, skipping", "job_id", j.ID, "title", j.Title, "err", err)
+			skipped++
 		} else {
-			batchErr = fmt.Errorf("batch not supported or single item")
-		}
-
-		if batchErr == nil && len(metas) == len(chunk) {
-			// Batch success
-			for k, j := range chunk {
-				meta := metas[k]
-				if j.Remote {
-					meta.Remote = true
-				}
-				if err := e.store.MarkAIProcessed(ctx, j.ID, meta); err != nil {
-					slog.Warn("enricher: failed to persist AI metadata", "job_id", j.ID, "err", err)
-					skipped++
-				} else {
-					enriched++
-				}
+			if j.Remote {
+				meta.Remote = true
 			}
-			slog.Info("enricher: 3-job batch successfully enriched", "batch_size", len(chunk), "progress", fmt.Sprintf("%d/%d", end, len(validJobs)))
-			idx = end
-			continue
-		}
-
-		// Fallback: process chunk item-by-item with retry logic
-		if batchErr != nil && isBatchSupported && len(chunk) > 1 {
-			slog.Warn("enricher: batch extraction failed, falling back to item-by-item retry", "err", batchErr)
-		}
-
-		for _, j := range chunk {
-			if ctx.Err() != nil {
-				break
-			}
-			meta, err := e.enrichWithRetry(ctx, j)
-			if err != nil {
-				slog.Warn("enricher: job enrichment failed, skipping", "job_id", j.ID, "title", j.Title, "err", err)
+			if err := e.store.MarkAIProcessed(ctx, j.ID, meta); err != nil {
+				slog.Warn("enricher: failed to persist AI metadata", "job_id", j.ID, "err", err)
 				skipped++
 			} else {
-				if j.Remote {
-					meta.Remote = true
-				}
-				if err := e.store.MarkAIProcessed(ctx, j.ID, meta); err != nil {
-					slog.Warn("enricher: failed to persist AI metadata", "job_id", j.ID, "err", err)
-					skipped++
-				} else {
-					enriched++
-				}
+				enriched++
+				slog.Info("enricher: 1-job enriched successfully", "job_id", j.ID, "title", j.Title, "progress", fmt.Sprintf("%d/%d", idx+1, len(validJobs)))
 			}
 		}
-		idx = end
 	}
 
 	elapsed := time.Since(start).Round(time.Second)

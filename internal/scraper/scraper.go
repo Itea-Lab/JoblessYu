@@ -23,6 +23,7 @@ import (
 // Announcer interface decouples ScraperManager from Discord notification logic.
 type Announcer interface {
 	PostDailyScrapeAnnouncement(summary bot.DailyScrapeSummary) error
+	UpdateStatusCard(online bool, details bot.StatusDetails) error
 	PostDevLogWebhook(title string, description string, color int, fields map[string]string)
 }
 
@@ -277,6 +278,17 @@ func (m *ScraperManager) runScrapeAndEnrich(ctx context.Context) {
 		}
 		if err := m.announcer.PostDailyScrapeAnnouncement(summary); err != nil {
 			slog.Warn("Failed to post daily scrape announcement", "err", err)
+		}
+
+		statusDetails := bot.StatusDetails{
+			ActiveJobs:     totalActive,
+			LastScrapeTime: time.Now(),
+			NextScrapeTime: bot.CalculateNextScrapeTime(time.Now()),
+			RetentionDays:  m.retentionDays,
+			Version:        "v1.2.0",
+		}
+		if err := m.announcer.UpdateStatusCard(true, statusDetails); err != nil {
+			slog.Warn("Failed to update status card after pipeline completion", "err", err)
 		}
 
 		m.announcer.PostDevLogWebhook(

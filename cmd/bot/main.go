@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -40,7 +41,9 @@ func main() {
 	enricher := job.NewBatchEnricher(repo, groq)
 	scraperMgr := scraper.NewScraperManager(repo, collyScraper, enricher, cfg.JobRetentionDays)
 
-	// Manual mode / Eval mode: run scrape, enrich, or eval-ai, then exit (no bot, no cron).
+	svc := job.NewJobService(repo)
+
+	// Manual mode / Eval mode: run scrape, enrich, or eval-ai, then exit.
 	if *evalAI {
 		log.Println("Running AI Evaluation & Hallucination Benchmark Suite...")
 		report := job.RunAIEval(ctx, groq)
@@ -49,6 +52,13 @@ func main() {
 	}
 	if *manualScrape {
 		log.Println("Manual scrape: starting full pipeline (jobspy + Colly + enrichment)...")
+		disbot, err := bot.NewBot(cfg, svc)
+		if err == nil {
+			if startErr := disbot.Start(); startErr == nil {
+				scraperMgr.SetAnnouncer(disbot.Notifier())
+				defer disbot.Stop()
+			}
+		}
 		scraperMgr.RunScrapeAndEnrich(ctx)
 		log.Println("Manual scrape complete.")
 		return
@@ -59,8 +69,6 @@ func main() {
 	}
 
 	// Normal mode / debug test mode.
-	svc := job.NewJobService(repo)
-
 	disbot, err := bot.NewBot(cfg, svc)
 	if err != nil {
 		log.Fatal("Error creating bot:", err)
@@ -74,6 +82,20 @@ func main() {
 		disbot.Stop()
 		return
 	}
+
+	// Lightweight HTTP health check server for Cloud Run / Docker / K8s readiness probes
+	go func() {
+		mux := http.NewServeMux()
+		mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("OK"))
+		})
+		port := os.Getenv("PORT")
+		if port == "" {
+			port = "8080"
+		}
+		_ = http.ListenAndServe(":"+port, mux)
+	}()
 
 	if err := disbot.Start(); err != nil {
 		log.Fatal("Error starting bot:", err)
