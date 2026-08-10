@@ -503,6 +503,7 @@ type PipelineStats struct {
 	LeadCount       int
 	HCMCount        int
 	HanoiCount      int
+	DaNangCount     int
 	RemoteCount     int
 }
 
@@ -516,13 +517,14 @@ func (r *JobRepository) GetPipelineSummaryStats(ctx context.Context) (PipelineSt
 			COUNT(*),
 			MAX(fetched_at),
 			COUNT(*) FILTER (WHERE fetched_at >= NOW() - INTERVAL '24 hours'),
-			COUNT(*) FILTER (WHERE LOWER(level) IN ('intern', 'fresher') OR LOWER(level) LIKE '%intern%' OR LOWER(level) LIKE '%fresher%'),
-			COUNT(*) FILTER (WHERE LOWER(level) IN ('junior', 'middle') OR LOWER(level) LIKE '%junior%' OR LOWER(level) LIKE '%middle%' OR LOWER(level) LIKE '%mid%'),
-			COUNT(*) FILTER (WHERE LOWER(level) = 'senior' OR LOWER(level) LIKE '%senior%'),
-			COUNT(*) FILTER (WHERE LOWER(level) IN ('lead', 'manager', 'head', 'director') OR LOWER(level) LIKE '%lead%' OR LOWER(level) LIKE '%manager%' OR LOWER(level) LIKE '%head%'),
-			COUNT(*) FILTER (WHERE location ILIKE '%hcm%' OR location ILIKE '%ho chi minh%' OR location ILIKE '%hồ chí minh%' OR location ILIKE '%saigon%' OR location ILIKE '%sg%'),
-			COUNT(*) FILTER (WHERE location ILIKE '%hanoi%' OR location ILIKE '%ha noi%' OR location ILIKE '%hà nội%' OR location ILIKE '%hn%'),
-			COUNT(*) FILTER (WHERE remote = true OR location ILIKE '%remote%')
+			COUNT(*) FILTER (WHERE level ILIKE '%intern%' OR level ILIKE '%fresher%' OR level ILIKE '%thực tập%' OR level ILIKE '%trainee%'),
+			COUNT(*) FILTER (WHERE level ILIKE '%junior%' OR level ILIKE '%middle%' OR level ILIKE '%mid%' OR level ILIKE '%chuyên viên%'),
+			COUNT(*) FILTER (WHERE level ILIKE '%senior%' OR level ILIKE '%cao cấp%'),
+			COUNT(*) FILTER (WHERE level ILIKE '%lead%' OR level ILIKE '%manager%' OR level ILIKE '%head%' OR level ILIKE '%director%' OR level ILIKE '%trưởng phòng%' OR level ILIKE '%quản lý%'),
+			COUNT(*) FILTER (WHERE location ILIKE '%hcm%' OR location ILIKE '%ho chi minh%' OR location ILIKE '%hồ chí minh%' OR location ILIKE '%saigon%' OR location ILIKE '%sg%' OR description ILIKE '%hồ chí minh%'),
+			COUNT(*) FILTER (WHERE location ILIKE '%hanoi%' OR location ILIKE '%ha noi%' OR location ILIKE '%hà nội%' OR location ILIKE '%hn%' OR description ILIKE '%hà nội%'),
+			COUNT(*) FILTER (WHERE location ILIKE '%da nang%' OR location ILIKE '%đà nẵng%' OR location ILIKE '%danang%' OR description ILIKE '%đà nẵng%'),
+			COUNT(*) FILTER (WHERE remote = true OR location ILIKE '%remote%' OR location ILIKE '%từ xa%' OR location ILIKE '%wfh%' OR description ILIKE '%làm việc từ xa%')
 		FROM jobs
 	`).Scan(
 		&stats.TotalActiveJobs,
@@ -534,6 +536,7 @@ func (r *JobRepository) GetPipelineSummaryStats(ctx context.Context) (PipelineSt
 		&stats.LeadCount,
 		&stats.HCMCount,
 		&stats.HanoiCount,
+		&stats.DaNangCount,
 		&stats.RemoteCount,
 	)
 	if err == nil && maxTime.Valid {

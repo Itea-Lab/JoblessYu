@@ -134,6 +134,7 @@ func (b *Bot) fetchDailySummaryDetails(ctx context.Context) DailyScrapeSummary {
 				summary.LeadCount = pStats.LeadCount
 				summary.HCMCount = pStats.HCMCount
 				summary.HanoiCount = pStats.HanoiCount
+				summary.DaNangCount = pStats.DaNangCount
 				summary.RemoteCount = pStats.RemoteCount
 			}
 		}

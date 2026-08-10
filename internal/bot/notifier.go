@@ -53,6 +53,7 @@ type DailyScrapeSummary struct {
 	LeadCount       int
 	HCMCount        int
 	HanoiCount      int
+	DaNangCount     int
 	RemoteCount     int
 }
 

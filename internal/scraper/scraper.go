@@ -283,6 +283,7 @@ func (m *ScraperManager) runScrapeAndEnrich(ctx context.Context) {
 			LeadCount:       pStats.LeadCount,
 			HCMCount:        pStats.HCMCount,
 			HanoiCount:      pStats.HanoiCount,
+			DaNangCount:     pStats.DaNangCount,
 			RemoteCount:     pStats.RemoteCount,
 		}
 		if err := m.announcer.PostDailyScrapeAnnouncement(summary); err != nil {

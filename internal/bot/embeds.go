@@ -444,8 +444,8 @@ func BuildDailyAnnouncementEmbed(summary DailyScrapeSummary) *discordgo.MessageE
 		},
 		{
 			Name: "📍 Top Locations",
-			Value: fmt.Sprintf("• 🏙️ **Ho Chi Minh**: `%d roles`  • 🏛️ **Ha Noi**: `%d roles`  • 💻 **Remote**: `%d roles`",
-				summary.HCMCount, summary.HanoiCount, summary.RemoteCount),
+			Value: fmt.Sprintf("• 🏙️ **Ho Chi Minh**: `%d roles`  • 🏛️ **Ha Noi**: `%d roles`  • 🌊 **Da Nang**: `%d roles`  • 💻 **Remote**: `%d roles`",
+				summary.HCMCount, summary.HanoiCount, summary.DaNangCount, summary.RemoteCount),
 			Inline: false,
 		},
 		{
