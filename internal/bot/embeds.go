@@ -418,43 +418,46 @@ func BuildDailyAnnouncementEmbed(summary DailyScrapeSummary) *discordgo.MessageE
 	}
 	nextScrapeStr := CalculateNextScrapeTime(time.Now()).In(locICT).Format("02 Jan 2006 15:04 ICT")
 
-	lastRunScraped := summary.JobspyCount + summary.CollyCount
-	recent24hScraped := summary.RecentJobspyCount + summary.RecentCollyCount
+	addedStr := "+0 new listings"
+	if summary.InsertedCount > 0 {
+		addedStr = fmt.Sprintf("+%d new listings", summary.InsertedCount)
+	} else if summary.Recent24hAdded > 0 {
+		addedStr = fmt.Sprintf("+%d new listings today", summary.Recent24hAdded)
+	}
 
 	fields := []*discordgo.MessageEmbedField{
 		{
-			Name:   "📅 Schedule & Timestamps",
+			Name:   "📅 Timestamps",
 			Value:  fmt.Sprintf("• **Last Scrape**: `%s`\n• **Next Scrape**: `%s`", lastScrapeStr, nextScrapeStr),
 			Inline: true,
 		},
 		{
-			Name: "⚡ Last Pipeline Run",
-			Value: fmt.Sprintf("• **Total Scraped**: `%d roles` (`%d` JobSpy + `%d` ITViec)\n• **Fresh Roles Added**: `+%d new listings`\n• **Cross-Site Merged**: `%d duplicates linked`\n• **AI Categorized**: `%d enriched`",
-				lastRunScraped, summary.JobspyCount, summary.CollyCount, summary.InsertedCount, summary.MergedCount, summary.EnrichedCount),
+			Name:   "📦 Job Pool Insights",
+			Value:  fmt.Sprintf("• **Fresh Roles Today**: `%s`\n• **Total Active Pool**: `%d listings`", addedStr, summary.TotalActiveJobs),
+			Inline: true,
+		},
+		{
+			Name: "🎯 Experience Level Breakdown",
+			Value: fmt.Sprintf("• 🎓 **Intern / Fresher**: `%d roles`  • 🌱 **Junior**: `%d roles`\n• 🚀 **Senior**: `%d roles`  • ⚡ **Lead / Manager**: `%d roles`",
+				summary.InternCount, summary.JuniorCount, summary.SeniorCount, summary.LeadCount),
+			Inline: false,
+		},
+		{
+			Name: "📍 Top Locations",
+			Value: fmt.Sprintf("• 🏙️ **Ho Chi Minh**: `%d roles`  • 🏛️ **Ha Noi**: `%d roles`  • 💻 **Remote**: `%d roles`",
+				summary.HCMCount, summary.HanoiCount, summary.RemoteCount),
+			Inline: false,
+		},
+		{
+			Name:   "🚀 Explore Jobs",
+			Value:  "Type `/jobs` anywhere on Discord to filter by position, level, location, and job type! (Results are ephemeral — only visible to you).",
 			Inline: false,
 		},
 	}
 
-	if recent24hScraped > 0 || summary.Recent24hAdded > 0 {
-		fields = append(fields, &discordgo.MessageEmbedField{
-			Name: "📊 24-Hour Rolling Totals",
-			Value: fmt.Sprintf("• **Total Scraped Today**: `%d roles` (`%d` JobSpy + `%d` ITViec)\n• **Fresh Roles Added Today**: `+%d new listings`\n• **AI Enriched Today**: `%d enriched`\n• **Active Job Pool**: `%d total listings`",
-				recent24hScraped, summary.RecentJobspyCount, summary.RecentCollyCount, summary.Recent24hAdded, summary.Recent24hEnriched, summary.TotalActiveJobs),
-			Inline: false,
-		})
-	} else {
-		fields[1].Value += fmt.Sprintf("\n• **Active Pool**: `%d total listings`", summary.TotalActiveJobs)
-	}
-
-	fields = append(fields, &discordgo.MessageEmbedField{
-		Name:   "🚀 Explore Jobs",
-		Value:  "Type `/jobs` anywhere on Discord to filter by position, level, location, and job type! (Results are ephemeral — only visible to you).",
-		Inline: false,
-	})
-
 	return &discordgo.MessageEmbed{
 		Title:       "🌅 SCRAPE SUMMARY",
-		Description: "IT job listings scraped from Indeed, LinkedIn, and ITViec with AI enrichment.",
+		Description: "Real-time IT job listings index for Vietnam software developers & engineers.",
 		Color:       0xF59E0B, // Gold / Amber
 		Fields:      fields,
 		Footer: &discordgo.MessageEmbedFooter{

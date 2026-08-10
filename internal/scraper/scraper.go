@@ -268,18 +268,22 @@ func (m *ScraperManager) runScrapeAndEnrich(ctx context.Context) {
 		totalActive := unenrichedCount + enrichedCount
 		pStats, _ := m.repo.GetPipelineSummaryStats(ctx)
 		summary := bot.DailyScrapeSummary{
-			RunTime:           pipelineStart,
-			TotalDuration:     totalDuration,
-			JobspyCount:       jobspyCount,
-			CollyCount:        len(itviecJobs),
-			InsertedCount:     stats.Inserted,
-			MergedCount:       stats.Merged,
-			EnrichedCount:     unenrichedCount,
-			TotalActiveJobs:   totalActive,
-			Recent24hAdded:    pStats.Recent24hAdded,
-			Recent24hEnriched: pStats.Recent24hEnriched,
-			RecentJobspyCount: pStats.RecentJobspyCount,
-			RecentCollyCount:  pStats.RecentCollyCount,
+			RunTime:         pipelineStart,
+			TotalDuration:   totalDuration,
+			JobspyCount:     jobspyCount,
+			CollyCount:      len(itviecJobs),
+			InsertedCount:   stats.Inserted,
+			MergedCount:     stats.Merged,
+			EnrichedCount:   unenrichedCount,
+			TotalActiveJobs: totalActive,
+			Recent24hAdded:  pStats.Recent24hAdded,
+			InternCount:     pStats.InternCount,
+			JuniorCount:     pStats.JuniorCount,
+			SeniorCount:     pStats.SeniorCount,
+			LeadCount:       pStats.LeadCount,
+			HCMCount:        pStats.HCMCount,
+			HanoiCount:      pStats.HanoiCount,
+			RemoteCount:     pStats.RemoteCount,
 		}
 		if err := m.announcer.PostDailyScrapeAnnouncement(summary); err != nil {
 			slog.Warn("Failed to post daily scrape announcement", "err", err)

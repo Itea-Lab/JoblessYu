@@ -494,15 +494,19 @@ func (r *JobRepository) GetScrapeStats(ctx context.Context) (int, time.Time, err
 }
 
 type PipelineStats struct {
-	TotalActiveJobs   int
-	LastScrapeTime    time.Time
-	Recent24hAdded    int
-	Recent24hEnriched int
-	RecentJobspyCount int
-	RecentCollyCount  int
+	TotalActiveJobs int
+	LastScrapeTime  time.Time
+	Recent24hAdded  int
+	InternCount     int
+	JuniorCount     int
+	SeniorCount     int
+	LeadCount       int
+	HCMCount        int
+	HanoiCount      int
+	RemoteCount     int
 }
 
-// GetPipelineSummaryStats queries Neon DB for recent 24-hour scrape metrics to populate static Card 2 on boot.
+// GetPipelineSummaryStats queries Neon DB for user-focused pool metrics (level & location breakdown) to populate Card 2.
 func (r *JobRepository) GetPipelineSummaryStats(ctx context.Context) (PipelineStats, error) {
 	var stats PipelineStats
 	var maxTime sql.NullTime
@@ -512,17 +516,25 @@ func (r *JobRepository) GetPipelineSummaryStats(ctx context.Context) (PipelineSt
 			COUNT(*),
 			MAX(fetched_at),
 			COUNT(*) FILTER (WHERE fetched_at >= NOW() - INTERVAL '24 hours'),
-			COUNT(*) FILTER (WHERE ai_processed_at >= NOW() - INTERVAL '24 hours'),
-			COUNT(*) FILTER (WHERE site IN ('indeed', 'linkedin') AND fetched_at >= NOW() - INTERVAL '24 hours'),
-			COUNT(*) FILTER (WHERE site = 'itviec' AND fetched_at >= NOW() - INTERVAL '24 hours')
+			COUNT(*) FILTER (WHERE LOWER(level) LIKE '%intern%' OR LOWER(level) LIKE '%fresher%'),
+			COUNT(*) FILTER (WHERE LOWER(level) LIKE '%junior%'),
+			COUNT(*) FILTER (WHERE LOWER(level) LIKE '%senior%'),
+			COUNT(*) FILTER (WHERE LOWER(level) LIKE '%lead%' OR LOWER(level) LIKE '%manager%' OR LOWER(level) LIKE '%head%'),
+			COUNT(*) FILTER (WHERE LOWER(location) LIKE '%hcm%' OR LOWER(location) LIKE '%chi minh%' OR LOWER(location) LIKE '%saigon%'),
+			COUNT(*) FILTER (WHERE LOWER(location) LIKE '%hanoi%' OR LOWER(location) LIKE '%ha noi%'),
+			COUNT(*) FILTER (WHERE remote = true OR LOWER(location) LIKE '%remote%')
 		FROM jobs
 	`).Scan(
 		&stats.TotalActiveJobs,
 		&maxTime,
 		&stats.Recent24hAdded,
-		&stats.Recent24hEnriched,
-		&stats.RecentJobspyCount,
-		&stats.RecentCollyCount,
+		&stats.InternCount,
+		&stats.JuniorCount,
+		&stats.SeniorCount,
+		&stats.LeadCount,
+		&stats.HCMCount,
+		&stats.HanoiCount,
+		&stats.RemoteCount,
 	)
 	if err == nil && maxTime.Valid {
 		stats.LastScrapeTime = maxTime.Time

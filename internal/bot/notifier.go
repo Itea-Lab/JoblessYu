@@ -38,19 +38,22 @@ func CalculateNextScrapeTime(now time.Time) time.Time {
 
 // DailyScrapeSummary contains parameters for the 5:00 AM daily job update announcement.
 type DailyScrapeSummary struct {
-	RunTime           time.Time
-	TotalDuration     time.Duration
-	JobspyCount       int
-	CollyCount        int
-	InsertedCount     int
-	MergedCount       int
-	EnrichedCount     int
-	TotalActiveJobs   int
-	Recent24hAdded    int
-	Recent24hEnriched int
-	RecentJobspyCount int
-	RecentCollyCount  int
-	TopCategories     map[string]int
+	RunTime         time.Time
+	TotalDuration   time.Duration
+	JobspyCount     int
+	CollyCount      int
+	InsertedCount   int
+	MergedCount     int
+	EnrichedCount   int
+	TotalActiveJobs int
+	Recent24hAdded  int
+	InternCount     int
+	JuniorCount     int
+	SeniorCount     int
+	LeadCount       int
+	HCMCount        int
+	HanoiCount      int
+	RemoteCount     int
 }
 
 // Notifier manages Discord lifecycle status cards, public announcements, and operational webhooks.

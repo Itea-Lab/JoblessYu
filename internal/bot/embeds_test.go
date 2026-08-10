@@ -73,7 +73,7 @@ func TestBuildDailyAnnouncementEmbed(t *testing.T) {
 	if embed.Title == "" {
 		t.Error("expected non-empty title")
 	}
-	if len(embed.Fields) != 3 {
-		t.Fatalf("expected 3 fields, got %d", len(embed.Fields))
+	if len(embed.Fields) != 5 {
+		t.Fatalf("expected 5 fields, got %d", len(embed.Fields))
 	}
 }

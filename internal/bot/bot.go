@@ -128,9 +128,13 @@ func (b *Bot) fetchDailySummaryDetails(ctx context.Context) DailyScrapeSummary {
 				summary.RunTime = pStats.LastScrapeTime
 				summary.TotalActiveJobs = pStats.TotalActiveJobs
 				summary.Recent24hAdded = pStats.Recent24hAdded
-				summary.Recent24hEnriched = pStats.Recent24hEnriched
-				summary.RecentJobspyCount = pStats.RecentJobspyCount
-				summary.RecentCollyCount = pStats.RecentCollyCount
+				summary.InternCount = pStats.InternCount
+				summary.JuniorCount = pStats.JuniorCount
+				summary.SeniorCount = pStats.SeniorCount
+				summary.LeadCount = pStats.LeadCount
+				summary.HCMCount = pStats.HCMCount
+				summary.HanoiCount = pStats.HanoiCount
+				summary.RemoteCount = pStats.RemoteCount
 			}
 		}
 	}
