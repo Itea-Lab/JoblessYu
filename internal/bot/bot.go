@@ -205,6 +205,11 @@ func (b *Bot) Start() error {
 	return nil
 }
 
+func (b *Bot) CloseWithoutOffline() {
+	close(b.stopJanitor)
+	b.session.Close()
+}
+
 func (b *Bot) Stop() {
 	close(b.stopJanitor)
 

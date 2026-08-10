@@ -56,7 +56,7 @@ func main() {
 		if err == nil {
 			if startErr := disbot.Start(); startErr == nil {
 				scraperMgr.SetAnnouncer(disbot.Notifier())
-				defer disbot.Stop()
+				defer disbot.CloseWithoutOffline()
 			}
 		}
 		scraperMgr.RunScrapeAndEnrich(ctx)
