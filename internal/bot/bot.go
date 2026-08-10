@@ -200,6 +200,30 @@ func (b *Bot) Start() error {
 				log.Println("Note: Daily summary card update:", err)
 			}
 		}()
+
+		// Real-time Postgres event listener: automatically updates Card 1 & Card 2 whenever jobs table is mutated (INSERT/UPDATE/DELETE)
+		if b.jobService != nil {
+			if statsService, ok := b.jobService.(*job.JobService); ok {
+				go func() {
+					ctx, cancel := context.WithCancel(context.Background())
+					go func() {
+						<-b.stopJanitor
+						cancel()
+					}()
+					statsService.ListenForJobChanges(ctx, func() {
+						rCtx, rCancel := context.WithTimeout(context.Background(), 10*time.Second)
+						defer rCancel()
+						details := b.fetchStatusDetails(rCtx)
+						_ = b.notifier.UpdateStatusCard(true, details)
+						summary := b.fetchDailySummaryDetails(rCtx)
+						if summary.TotalActiveJobs == 0 {
+							summary.TotalActiveJobs = details.ActiveJobs
+						}
+						_ = b.notifier.UpdateDailySummaryCard(summary)
+					})
+				}()
+			}
+		}
 	}
 
 	return nil

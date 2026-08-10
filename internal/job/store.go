@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"log/slog"
 	"regexp"
 	"strings"
 	"time"
@@ -527,4 +528,39 @@ func (r *JobRepository) GetPipelineSummaryStats(ctx context.Context) (PipelineSt
 		stats.LastScrapeTime = maxTime.Time
 	}
 	return stats, err
+}
+
+// ListenForJobChanges listens to Postgres LISTEN jobs_changed channel for real-time DB mutations (INSERT/UPDATE/DELETE).
+func (r *JobRepository) ListenForJobChanges(ctx context.Context, onChange func()) {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		slog.Warn("Failed to acquire connection for LISTEN jobs_changed", "err", err)
+		return
+	}
+	defer conn.Release()
+
+	_, err = conn.Exec(ctx, "LISTEN jobs_changed;")
+	if err != nil {
+		slog.Warn("Failed to execute LISTEN jobs_changed", "err", err)
+		return
+	}
+
+	slog.Info("Real-time database listener active (LISTEN jobs_changed)")
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		notification, err := conn.Conn().WaitForNotification(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			slog.Warn("LISTEN jobs_changed connection lost, retrying...", "err", err)
+			time.Sleep(5 * time.Second)
+			continue
+		}
+		if notification != nil {
+			onChange()
+		}
+	}
 }

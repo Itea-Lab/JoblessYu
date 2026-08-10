@@ -77,3 +77,12 @@ func (s *JobService) GetPipelineSummaryStats(ctx context.Context) (PipelineStats
 	}
 	return PipelineStats{}, nil
 }
+
+// ListenForJobChanges delegates to underlying store for real-time Postgres LISTEN jobs_changed notifications.
+func (s *JobService) ListenForJobChanges(ctx context.Context, onChange func()) {
+	if listenStore, ok := s.store.(interface {
+		ListenForJobChanges(ctx context.Context, onChange func())
+	}); ok {
+		listenStore.ListenForJobChanges(ctx, onChange)
+	}
+}
