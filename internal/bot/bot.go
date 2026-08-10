@@ -126,11 +126,11 @@ func (b *Bot) fetchDailySummaryDetails(ctx context.Context) DailyScrapeSummary {
 			pStats, err := statsService.GetPipelineSummaryStats(ctx)
 			if err == nil {
 				summary.RunTime = pStats.LastScrapeTime
-				summary.JobspyCount = pStats.RecentJobspyCount
-				summary.CollyCount = pStats.RecentCollyCount
-				summary.InsertedCount = pStats.Recent24hAdded
-				summary.EnrichedCount = pStats.Recent24hEnriched
 				summary.TotalActiveJobs = pStats.TotalActiveJobs
+				summary.Recent24hAdded = pStats.Recent24hAdded
+				summary.Recent24hEnriched = pStats.Recent24hEnriched
+				summary.RecentJobspyCount = pStats.RecentJobspyCount
+				summary.RecentCollyCount = pStats.RecentCollyCount
 			}
 		}
 	}
