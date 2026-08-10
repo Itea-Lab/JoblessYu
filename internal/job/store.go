@@ -517,9 +517,9 @@ func (r *JobRepository) GetPipelineSummaryStats(ctx context.Context) (PipelineSt
 			MAX(fetched_at),
 			COUNT(*) FILTER (WHERE fetched_at >= NOW() - INTERVAL '24 hours'),
 			COUNT(*) FILTER (WHERE LOWER(level) IN ('intern', 'fresher') OR LOWER(level) LIKE '%intern%' OR LOWER(level) LIKE '%fresher%'),
-			COUNT(*) FILTER (WHERE LOWER(level) = 'junior' OR LOWER(level) LIKE '%junior%'),
+			COUNT(*) FILTER (WHERE LOWER(level) IN ('junior', 'middle') OR LOWER(level) LIKE '%junior%' OR LOWER(level) LIKE '%middle%' OR LOWER(level) LIKE '%mid%'),
 			COUNT(*) FILTER (WHERE LOWER(level) = 'senior' OR LOWER(level) LIKE '%senior%'),
-			COUNT(*) FILTER (WHERE LOWER(level) IN ('lead', 'manager', 'head') OR LOWER(level) LIKE '%lead%' OR LOWER(level) LIKE '%manager%'),
+			COUNT(*) FILTER (WHERE LOWER(level) IN ('lead', 'manager', 'head', 'director') OR LOWER(level) LIKE '%lead%' OR LOWER(level) LIKE '%manager%' OR LOWER(level) LIKE '%head%'),
 			COUNT(*) FILTER (WHERE location ILIKE '%hcm%' OR location ILIKE '%ho chi minh%' OR location ILIKE '%hồ chí minh%' OR location ILIKE '%saigon%' OR location ILIKE '%sg%'),
 			COUNT(*) FILTER (WHERE location ILIKE '%hanoi%' OR location ILIKE '%ha noi%' OR location ILIKE '%hà nội%' OR location ILIKE '%hn%'),
 			COUNT(*) FILTER (WHERE remote = true OR location ILIKE '%remote%')

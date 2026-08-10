@@ -438,7 +438,7 @@ func BuildDailyAnnouncementEmbed(summary DailyScrapeSummary) *discordgo.MessageE
 		},
 		{
 			Name: "🎯 Experience Level Breakdown",
-			Value: fmt.Sprintf("• 🎓 **Intern / Fresher**: `%d roles`  • 🌱 **Junior**: `%d roles`\n• 🚀 **Senior**: `%d roles`  • ⚡ **Lead / Manager**: `%d roles`",
+			Value: fmt.Sprintf("• 🎓 **Intern / Fresher**: `%d roles`  • 🌱 **Junior / Mid**: `%d roles`\n• 🚀 **Senior**: `%d roles`  • ⚡ **Lead / Manager**: `%d roles`",
 				summary.InternCount, summary.JuniorCount, summary.SeniorCount, summary.LeadCount),
 			Inline: false,
 		},
