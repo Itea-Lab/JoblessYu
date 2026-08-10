@@ -3,6 +3,23 @@
 > Emergency backup context. Grand scheme from the foundation.
 > Roll up progress-log entries here at slice boundaries so context survives session resets.
 
+## [Slice N] — 2026-08-11
+
+### Summary
+User-Centric Discord Hub Redesign, Multi-Keyword Database Breakdown, Real-Time Hybrid DB Listener & Production Containerization. Redesigned Card 2 (`🌅 SCRAPE SUMMARY`) to remove technical dev clutter (`duplicates linked`, `AI Categorized`) and present high-value job seeker insights (**Timestamps**, **Fresh Roles Today**, **Total Active Pool**, **Experience Level Breakdown** (`Intern / Fresher`, `Junior / Mid`, `Senior`, `Lead / Manager`), and **Top Locations** (`Ho Chi Minh`, `Ha Noi`, `Da Nang`, `Remote`)). Implemented multi-keyword recognition in `GetPipelineSummaryStats` handling Vietnamese diacritics (`Hà Nội`, `HN`, `Hồ Chí Minh`, `HCM`, `SG`, `Đà Nẵng`, `Remote`, `Junior / Mid`, `Senior`, `Lead`). Added Postgres `LISTEN jobs_changed` + 30s count monitor in `bot.go` and static image containerization with HTTP `/healthz` probe.
+
+### Files touched
+- modified: `internal/bot/embeds.go` (redesigned `BuildDailyAnnouncementEmbed` for user-centric level and location breakdowns)
+- modified: `internal/job/store.go` (expanded `GetPipelineSummaryStats` ILIKE queries for multi-keyword location & level recognition)
+- modified: `internal/bot/notifier.go` (updated `DailyScrapeSummary` struct with breakdown fields)
+- modified: `internal/bot/bot.go` (updated `fetchDailySummaryDetails` and hybrid real-time DB listener)
+- modified: `internal/scraper/scraper.go` (updated `runScrapeAndEnrich` summary population)
+- modified: `Dockerfile` (multi-stage Go + Python hybrid runtime build)
+- modified: `cmd/bot/main.go` (added HTTP `/healthz` endpoint on port 8080)
+- created: `migrations/007_add_notify_trigger.sql` (Postgres `notify_jobs_changed()` trigger)
+
+---
+
 ## [Slice M] — 2026-08-11
 
 ### Summary

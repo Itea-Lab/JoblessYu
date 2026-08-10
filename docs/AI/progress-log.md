@@ -507,12 +507,14 @@ Major architecture overhaul: replaced Firecrawl with hybrid jobspy+Colly scraper
   - Created migration `007_add_notify_trigger.sql` (Postgres `LISTEN/NOTIFY` trigger `notify_jobs_changed()`).
   - Added `ListenForJobChanges` to `JobRepository` & `JobService`.
   - Implemented **Hybrid DB Sync** in `bot.Start()` combining Postgres `LISTEN` push notifications with a 30s count monitor and 500ms debouncing timer. Discord cards now update live in real-time whether rows are modified via scrapers, crons, or manual SQL actions in Neon Console.
-- **Production Hybrid Docker Container & Health Probe (`Dockerfile`, `cmd/bot/main.go`)**:
-  - Updated multi-stage `Dockerfile` (Go 1.24 static build + Python 3.11 runtime with `python-jobspy` & requirements pre-installed).
-  - Added lightweight HTTP `/healthz` endpoint on port `8080` in `main.go` for Cloud Run, Docker Compose, and Kubernetes liveness/readiness probes.
+- **User-Centric Card 2 Redesign & Multi-Keyword Breakdown (`internal/bot/embeds.go`, `internal/job/store.go`)**:
+  - Removed technical dev clutter (`duplicates linked`, `AI Categorized`, `JobSpy + ITViec` breakdown) from Card 2.
+  - Redesigned Card 2 to feature **User-Centric Job Pool Insights**: **Timestamps**, **Fresh Roles Today**, **Total Active Pool**, **Experience Level Breakdown** (`🎓 Intern / Fresher`, `🌱 Junior / Mid`, `🚀 Senior`, `⚡ Lead / Manager`), and **Top Locations** (`🏙️ Ho Chi Minh`, `🏛️ Ha Noi`, `🌊 Da Nang`, `💻 Remote`).
+  - Expanded `GetPipelineSummaryStats` ILIKE queries in `store.go` to use multi-keyword recognition matching Vietnamese diacritics (`Hà Nội`, `HN`, `Hồ Chí Minh`, `HCM`, `SG`, `Đà Nẵng`, `Remote`, `Junior / Mid`, `Senior`, `Lead`), ensuring 100% database categorization accuracy.
 
 ### Verification
 - `go test -v -race -cover ./...`: PASS (100% test pass rate across all packages).
+- `go vet ./...`: PASS (0 warnings / 0 errors).
 - `make scrape`: PASS (Updated Card 1 & Card 2 live in Discord).
 - `Migration 007`: Applied & active on Neon PostgreSQL DB.
 
