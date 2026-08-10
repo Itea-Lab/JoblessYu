@@ -79,9 +79,9 @@ func (e *BatchEnricher) Run(ctx context.Context) error {
 		}
 	}
 
-	// Step 2: Process in 5-job chunks if BatchExtractor is available (respects Groq 6000 TPM limit)
+	// Step 2: Process in 3-job chunks if BatchExtractor is available (strictly respects Groq 6000 TPM limit ~2425 tokens)
 	batchExtractor, isBatchSupported := e.extractor.(BatchExtractor)
-	const batchChunkSize = 5
+	const batchChunkSize = 3
 
 	for idx := 0; idx < len(validJobs); {
 		if ctx.Err() != nil {
@@ -122,7 +122,7 @@ func (e *BatchEnricher) Run(ctx context.Context) error {
 					enriched++
 				}
 			}
-			slog.Info("enricher: 5-job batch successfully enriched", "batch_size", len(chunk), "progress", fmt.Sprintf("%d/%d", end, len(validJobs)))
+			slog.Info("enricher: 3-job batch successfully enriched", "batch_size", len(chunk), "progress", fmt.Sprintf("%d/%d", end, len(validJobs)))
 			idx = end
 			continue
 		}
