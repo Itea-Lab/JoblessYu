@@ -3,6 +3,7 @@ package job
 import (
 	"context"
 	"strings"
+	"time"
 )
 
 // jobStore is the contract JobService needs from the persistence layer.
@@ -55,4 +56,14 @@ func (s *JobService) FetchAndProcessJobs(ctx context.Context, q JobQuery) ([]Job
 	}
 
 	return filtered, nil
+}
+
+// GetScrapeStats delegates to the underlying store to retrieve active job count and last scrape timestamp.
+func (s *JobService) GetScrapeStats(ctx context.Context) (int, time.Time, error) {
+	if statsStore, ok := s.store.(interface {
+		GetScrapeStats(ctx context.Context) (int, time.Time, error)
+	}); ok {
+		return statsStore.GetScrapeStats(ctx)
+	}
+	return 0, time.Time{}, nil
 }

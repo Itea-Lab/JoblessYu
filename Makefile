@@ -1,4 +1,4 @@
-.PHONY: dev bot test lint lint-go lint-python scrape enrich migrate clean
+.PHONY: dev bot test test-notify eval-ai lint lint-go lint-python scrape enrich migrate clean
 
 bot:
 	@go run ./cmd/bot || [ $$? -eq 1 ]  # suppress cosmetic exit code 1 from Ctrl+C
@@ -7,6 +7,14 @@ dev: bot
 
 test:
 	go test -race -cover ./...
+
+# Test Discord notifications & UI visibility (Status Card Online/Offline, Daily Announcement, Dev Webhook)
+test-notify:
+	go run ./cmd/bot -test-notify
+
+# Run AI Evaluation & Hallucination Benchmark Suite
+eval-ai:
+	go run ./cmd/bot -eval-ai
 
 lint: lint-go lint-python
 

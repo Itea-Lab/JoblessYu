@@ -16,9 +16,9 @@ import (
 )
 
 type JobRepository struct {
-	pool            *pgxpool.Pool
-	hasJobTypeNorm  bool
-	hasExpertise    bool
+	pool             *pgxpool.Pool
+	hasJobTypeNorm   bool
+	hasExpertise     bool
 	hasAlternateURLs bool
 }
 
@@ -38,6 +38,10 @@ func NewJobRepository(ctx context.Context, dbURL string) (*JobRepository, error)
 	if err != nil {
 		return nil, fmt.Errorf("parse db url: %w", err)
 	}
+
+	cfg.MaxConns = 10
+	cfg.MinConns = 2
+	cfg.MaxConnIdleTime = 5 * time.Minute
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
@@ -135,9 +139,6 @@ func (r *JobRepository) FetchRawJobs(ctx context.Context, q JobQuery) ([]JobEntr
 	args := []interface{}{}
 	argIdx := 1
 	jobTypeExpr := `COALESCE(job_type, '')`
-	if r.hasJobTypeNorm {
-		jobTypeExpr = `COALESCE(NULLIF(job_type_normalized, ''), COALESCE(job_type, ''))`
-	}
 	expertiseExpr := `''`
 	if r.hasExpertise {
 		expertiseExpr = `COALESCE(expertise, '')`
@@ -146,7 +147,7 @@ func (r *JobRepository) FetchRawJobs(ctx context.Context, q JobQuery) ([]JobEntr
 	if r.hasAlternateURLs {
 		altURLsExpr = `COALESCE(alternate_urls, '[]'::jsonb)`
 	}
-	query := fmt.Sprintf(`SELECT id, COALESCE(title, ''), COALESCE(company, ''), COALESCE(location, ''), job_url, %s, COALESCE(description, ''), COALESCE(level, ''), ai_processed_at, COALESCE(tags, '{}'::jsonb), COALESCE(summary, ''), COALESCE(salary, ''), COALESCE(remote, false), COALESCE(ai_model, ''), %s, COALESCE(site, ''), %s FROM jobs`, jobTypeExpr, expertiseExpr, altURLsExpr)
+	query := fmt.Sprintf(`SELECT id, COALESCE(title, ''), COALESCE(company, ''), COALESCE(location, ''), job_url, %s, COALESCE(description, ''), COALESCE(level, ''), ai_processed_at, COALESCE(tags, '{}'::jsonb), COALESCE(summary, ''), COALESCE(salary, ''), COALESCE(remote, false), '', %s, COALESCE(site, ''), %s FROM jobs`, jobTypeExpr, expertiseExpr, altURLsExpr)
 
 	// Only show AI-enriched jobs — un-enriched jobs are hidden from users
 	// until the daily batch enrichment processes them.
@@ -249,6 +250,7 @@ func (r *JobRepository) FetchRawJobs(ctx context.Context, q JobQuery) ([]JobEntr
 		if idx := strings.Index(loc, "\n"); idx >= 0 {
 			loc = strings.TrimSpace(loc[:idx])
 		}
+		loc = NormalizeLocation(loc, description)
 		if len(loc) > 80 {
 			loc = loc[:80]
 		}
@@ -298,17 +300,16 @@ func (r *JobRepository) MarkAIProcessed(ctx context.Context, jobID int64, meta J
 
 	_, err = r.pool.Exec(ctx,
 		`UPDATE jobs
-		 SET level               = $1,
- 		     job_type_normalized = $2,
- 		     tags                = $3,
- 		     summary             = $4,
- 		     salary              = $5,
- 		     remote              = $6,
- 		     ai_processed_at     = NOW(),
- 		     ai_model            = $7,
- 		     expertise           = $8
- 		 WHERE id = $9`,
-		meta.Level, meta.Type, tagsJSON, meta.Summary, meta.Salary, meta.Remote, meta.Model, meta.Expertise, jobID,
+		 SET level           = $1,
+ 		     job_type        = $2,
+ 		     tags            = $3,
+ 		     summary         = $4,
+ 		     salary          = $5,
+ 		     remote          = $6,
+ 		     ai_processed_at = NOW(),
+ 		     expertise       = $7
+ 		 WHERE id = $8`,
+		meta.Level, meta.Type, tagsJSON, meta.Summary, meta.Salary, meta.Remote, meta.Expertise, jobID,
 	)
 	return err
 }
@@ -319,7 +320,7 @@ func (r *JobRepository) MarkAIProcessed(ctx context.Context, jobID int64, meta J
 func (r *JobRepository) FetchUnenrichedJobs(ctx context.Context) ([]JobEntry, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT id, COALESCE(title, ''), COALESCE(company, ''), COALESCE(location, ''),
-		        job_url, COALESCE(NULLIF(job_type_normalized, ''), COALESCE(job_type, '')),
+		        job_url, COALESCE(job_type, ''),
 		        COALESCE(description, ''), COALESCE(remote, false)
 		 FROM jobs
 		 WHERE ai_processed_at IS NULL
@@ -394,7 +395,7 @@ func (r *JobRepository) UpsertJobs(ctx context.Context, jobs []JobEntry) (Upsert
 		if len(comp) > 100 {
 			comp = comp[:100]
 		}
-		loc := strings.TrimSpace(j.Location)
+		loc := NormalizeLocation(j.Location, j.Description)
 		if idx := strings.Index(loc, "\n"); idx >= 0 {
 			loc = strings.TrimSpace(loc[:idx])
 		}
@@ -458,16 +459,12 @@ func (r *JobRepository) UpsertJobs(ctx context.Context, jobs []JobEntry) (Upsert
 			                              THEN NULL ELSE jobs.ai_processed_at END,
 			   level               = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
 			                              THEN NULL ELSE jobs.level END,
-			   job_type_normalized = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
-			                              THEN NULL ELSE jobs.job_type_normalized END,
 			   tags                = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
 			                              THEN '{}'::jsonb ELSE jobs.tags END,
 			   summary             = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
 			                              THEN NULL ELSE jobs.summary END,
 			   salary              = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
 			                              THEN NULL ELSE jobs.salary END,
-			   ai_model            = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
-			                              THEN NULL ELSE jobs.ai_model END,
 			   expertise           = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
 			                              THEN NULL ELSE jobs.expertise END`,
 			j.URL, j.Site, j.URL, j.Title, comp, loc, j.Type, j.Description, j.Remote, dedupHash,
@@ -479,4 +476,18 @@ func (r *JobRepository) UpsertJobs(ctx context.Context, jobs []JobEntry) (Upsert
 		stats.Inserted++
 	}
 	return stats, nil
+}
+
+// GetScrapeStats queries the database for total active jobs and the latest fetched_at timestamp.
+func (r *JobRepository) GetScrapeStats(ctx context.Context) (int, time.Time, error) {
+	var totalActive int
+	var maxTime sql.NullTime
+	err := r.pool.QueryRow(ctx, `
+		SELECT COUNT(*), MAX(fetched_at) FROM jobs
+	`).Scan(&totalActive, &maxTime)
+	var lastScrape time.Time
+	if err == nil && maxTime.Valid {
+		lastScrape = maxTime.Time
+	}
+	return totalActive, lastScrape, err
 }

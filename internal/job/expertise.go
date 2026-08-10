@@ -28,7 +28,7 @@ var ExpertiseCategories = []ExpertiseCategory{
 	{
 		Value:    "web_dev",
 		Label:    "Web Application Development",
-		Keywords: []string{"backend", "frontend", "front-end", "back-end", "fullstack", "full-stack", "web developer", "node.js", "react", "vue", "angular", "html", "css", "javascript", "php", "wordpress"},
+		Keywords: []string{"backend", "frontend", "front-end", "back-end", "fullstack", "full-stack", "web developer", "golang", "node.js", "react", "vue", "angular", "html", "css", "javascript", "php", "wordpress"},
 	},
 	{
 		Value:    "mobile_dev",

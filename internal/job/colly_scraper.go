@@ -14,7 +14,7 @@ import (
 
 const (
 	itviecListingURL = "https://itviec.com/it-jobs"
-	itviecMaxJobs    = 40
+	itviecMaxJobs    = 30
 	itviecDelay      = 2 * time.Second
 )
 
@@ -46,8 +46,9 @@ func (s *CollyScraper) ScrapeITViec(ctx context.Context) ([]JobEntry, error) {
 	c.SetRequestTimeout(30 * time.Second)
 	c.Limit(&colly.LimitRule{
 		DomainGlob:  "itviec.com",
-		Delay:       itviecDelay,
-		RandomDelay: 1 * time.Second,
+		Parallelism: 4,
+		Delay:       500 * time.Millisecond,
+		RandomDelay: 500 * time.Millisecond,
 	})
 
 	// Handle job cards on the listing page → extract URL + check freshness → visit.
@@ -117,7 +118,7 @@ func (s *CollyScraper) ScrapeITViec(ctx context.Context) ([]JobEntry, error) {
 			company = company[:100]
 		}
 
-		// Location.
+		// Location: extract location badge or default to Vietnam, then normalize against address/body.
 		var location string
 		if text := strings.TrimSpace(e.ChildText(".job-info .location")); text != "" {
 			location = text
@@ -131,6 +132,7 @@ func (s *CollyScraper) ScrapeITViec(ctx context.Context) ([]JobEntry, error) {
 		if idx := strings.Index(location, "\n"); idx >= 0 {
 			location = strings.TrimSpace(location[:idx])
 		}
+		location = NormalizeLocation(location, e.DOM.Text())
 		if len(location) > 80 {
 			location = location[:80]
 		}

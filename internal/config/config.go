@@ -10,8 +10,11 @@ import (
 
 type Config struct {
 	// Discord
-	DiscordToken string
-	DiscordGuild string
+	DiscordToken                 string
+	DiscordGuild                 string
+	DiscordStatusChannelID       string
+	DiscordAnnouncementChannelID string
+	DiscordLogWebhookURL         string
 
 	// Database
 	DatabaseURL string
@@ -30,9 +33,12 @@ func Load() *Config {
 	}
 
 	cfg := &Config{
-		DiscordToken: os.Getenv("DISCORD_BOT_TOKEN"),
-		DatabaseURL:  os.Getenv("DATABASE_URL"),
-		DiscordGuild: os.Getenv("DISCORD_GUILD_ID"),
+		DiscordToken:                 os.Getenv("DISCORD_BOT_TOKEN"),
+		DatabaseURL:                  os.Getenv("DATABASE_URL"),
+		DiscordGuild:                 os.Getenv("DISCORD_GUILD_ID"),
+		DiscordStatusChannelID:       os.Getenv("DISCORD_STATUS_CHANNEL_ID"),
+		DiscordAnnouncementChannelID: os.Getenv("DISCORD_ANNOUNCEMENT_CHANNEL_ID"),
+		DiscordLogWebhookURL:         os.Getenv("DISCORD_LOG_WEBHOOK_URL"),
 
 		GroqAPIKey: os.Getenv("GROQ_API_KEY"),
 		AIModel:    os.Getenv("AI_MODEL"),

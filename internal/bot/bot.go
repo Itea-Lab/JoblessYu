@@ -42,12 +42,14 @@ type cachedCriteria struct {
 // needed.
 type jobService interface {
 	FetchAndProcessJobs(ctx context.Context, q job.JobQuery) ([]job.JobEntry, error)
+	GetScrapeStats(ctx context.Context) (int, time.Time, error)
 }
 
 type Bot struct {
 	session    *discordgo.Session
 	cfg        *config.Config
 	jobService jobService
+	notifier   *Notifier
 
 	jobsCache map[string]cachedJobs
 	uiState   map[string]cachedCriteria
@@ -75,10 +77,13 @@ func NewBot(cfg *config.Config, jobService jobService) (*Bot, error) {
 			discordgo.IntentsDirectMessages |
 			discordgo.IntentsGuilds
 
+	notifier := NewNotifier(session, cfg)
+
 	bot := &Bot{
 		session:     session,
 		cfg:         cfg,
 		jobService:  jobService,
+		notifier:    notifier,
 		jobsCache:   make(map[string]cachedJobs),
 		uiState:     make(map[string]cachedCriteria),
 		stopJanitor: make(chan struct{}),
@@ -89,6 +94,29 @@ func NewBot(cfg *config.Config, jobService jobService) (*Bot, error) {
 	go bot.cacheJanitor()
 
 	return bot, nil
+}
+
+func (b *Bot) Notifier() *Notifier {
+	return b.notifier
+}
+
+func (b *Bot) fetchStatusDetails(ctx context.Context) StatusDetails {
+	details := StatusDetails{
+		RetentionDays:  b.cfg.JobRetentionDays,
+		Version:        "v1.2.0",
+		NextScrapeTime: CalculateNextScrapeTime(time.Now()),
+	}
+
+	if b.jobService != nil {
+		active, lastScrape, err := b.jobService.GetScrapeStats(ctx)
+		if err == nil {
+			details.ActiveJobs = active
+			details.LastScrapeTime = lastScrape
+		} else {
+			log.Println("bot: failed to query scrape stats for status card:", err)
+		}
+	}
+	return details
 }
 
 func (b *Bot) cacheJanitor() {
@@ -137,10 +165,31 @@ func (b *Bot) Start() error {
 		log.Println("Failed to overwrite slash commands:", err)
 	}
 
+	// Update static availability card to Online with real DB stats
+	if b.notifier != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			details := b.fetchStatusDetails(ctx)
+			if err := b.notifier.UpdateStatusCard(true, details); err != nil {
+				log.Println("Note: Status card update:", err)
+			}
+		}()
+	}
+
 	return nil
 }
 
 func (b *Bot) Stop() {
 	close(b.stopJanitor)
+
+	// Update static availability card to Offline with real DB stats
+	if b.notifier != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		details := b.fetchStatusDetails(ctx)
+		cancel()
+		_ = b.notifier.UpdateStatusCard(false, details)
+	}
+
 	b.session.Close()
 }

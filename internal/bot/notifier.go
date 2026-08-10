@@ -1,0 +1,292 @@
+package bot
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+
+	"JoblessYu/internal/config"
+
+	"github.com/bwmarrin/discordgo"
+)
+
+// StatusDetails contains parameters for rendering the static availability status card.
+type StatusDetails struct {
+	ActiveJobs     int
+	LastScrapeTime time.Time
+	NextScrapeTime time.Time
+	RetentionDays  int
+	Version        string
+}
+
+// CalculateNextScrapeTime computes the next occurrence of daily 05:00 AM ICT (22:00 UTC) from now.
+func CalculateNextScrapeTime(now time.Time) time.Time {
+	utcNow := now.UTC()
+	next := time.Date(utcNow.Year(), utcNow.Month(), utcNow.Day(), 22, 0, 0, 0, time.UTC)
+	if !utcNow.Before(next) {
+		next = next.AddDate(0, 0, 1)
+	}
+	return next
+}
+
+// DailyScrapeSummary contains parameters for the 5:00 AM daily job update announcement.
+type DailyScrapeSummary struct {
+	RunTime         time.Time
+	TotalDuration   time.Duration
+	JobspyCount     int
+	CollyCount      int
+	InsertedCount   int
+	MergedCount     int
+	EnrichedCount   int
+	TotalActiveJobs int
+	TopCategories   map[string]int
+}
+
+// Notifier manages Discord lifecycle status cards, public announcements, and operational webhooks.
+type Notifier struct {
+	session     *discordgo.Session
+	cfg         *config.Config
+	statusMsgID string
+	mu          sync.Mutex
+}
+
+func NewNotifier(session *discordgo.Session, cfg *config.Config) *Notifier {
+	return &Notifier{
+		session: session,
+		cfg:     cfg,
+	}
+}
+
+// resolveChannelID returns targetChannelID if set, otherwise auto-discovers the primary text channel in DISCORD_GUILD_ID or connected guilds.
+func (n *Notifier) resolveChannelID(targetChannelID string) (string, error) {
+	if targetChannelID != "" {
+		return targetChannelID, nil
+	}
+
+	if n.session == nil {
+		return "", fmt.Errorf("discord session is nil")
+	}
+
+	guildID := n.cfg.DiscordGuild
+	if guildID == "" {
+		if n.session.State != nil && len(n.session.State.Guilds) > 0 {
+			guildID = n.session.State.Guilds[0].ID
+		} else {
+			userGuilds, err := n.session.UserGuilds(10, "", "", false)
+			if err == nil && len(userGuilds) > 0 {
+				guildID = userGuilds[0].ID
+			}
+		}
+	}
+
+	if guildID == "" {
+		return "", fmt.Errorf("no DISCORD_GUILD_ID set and bot is not connected to any server")
+	}
+
+	channels, err := n.session.GuildChannels(guildID)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch channels for guild %s: %w", guildID, err)
+	}
+
+	// 1. Look for channel named "general", "bot-status", "job-announcements"
+	for _, ch := range channels {
+		if ch.Type == discordgo.ChannelTypeGuildText && (ch.Name == "general" || ch.Name == "bot-status" || ch.Name == "announcements") {
+			return ch.ID, nil
+		}
+	}
+
+	// 2. Fall back to the first text channel
+	for _, ch := range channels {
+		if ch.Type == discordgo.ChannelTypeGuildText {
+			return ch.ID, nil
+		}
+	}
+
+	return "", fmt.Errorf("no text channel found in guild %s", guildID)
+}
+
+// GetResolvedChannelID returns the channel ID that will be used for notifications.
+func (n *Notifier) GetResolvedChannelID(preferredChannelID string) string {
+	chID, err := n.resolveChannelID(preferredChannelID)
+	if err != nil {
+		return ""
+	}
+	return chID
+}
+
+// UpdateStatusCard creates or edits the single static availability status card in DISCORD_STATUS_CHANNEL_ID (or default server channel).
+func (n *Notifier) UpdateStatusCard(online bool, details StatusDetails) error {
+	if n.session == nil {
+		return fmt.Errorf("discord session is nil")
+	}
+
+	channelID, err := n.resolveChannelID(n.cfg.DiscordStatusChannelID)
+	if err != nil {
+		return fmt.Errorf("status channel resolution failed: %w", err)
+	}
+
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	embed := BuildStatusCardEmbed(online, details)
+	botUserID := ""
+	if n.session.State != nil && n.session.State.User != nil {
+		botUserID = n.session.State.User.ID
+	}
+
+	// 1. Try editing known message ID if already tracked in memory
+	if n.statusMsgID != "" {
+		_, editErr := n.session.ChannelMessageEditEmbed(channelID, n.statusMsgID, embed)
+		if editErr == nil {
+			slog.Info("Edited static status card (in-memory ID)", "channel_id", channelID, "message_id", n.statusMsgID, "online", online)
+			return nil
+		}
+	}
+
+	// 2. Search recent channel messages for existing status card from JoblessYu
+	msgs, fetchErr := n.session.ChannelMessages(channelID, 50, "", "", "")
+	if fetchErr == nil {
+		for _, msg := range msgs {
+			if botUserID != "" && msg.Author != nil && msg.Author.ID != botUserID {
+				continue
+			}
+			if len(msg.Embeds) > 0 {
+				emb := msg.Embeds[0]
+				if (emb.Footer != nil && strings.Contains(emb.Footer.Text, "JoblessYu Service Monitor")) ||
+					strings.Contains(emb.Title, "ONLINE") || strings.Contains(emb.Title, "OFFLINE") {
+					_, editErr := n.session.ChannelMessageEditEmbed(channelID, msg.ID, embed)
+					if editErr == nil {
+						n.statusMsgID = msg.ID
+						slog.Info("Edited existing static status card", "channel_id", channelID, "message_id", msg.ID, "online", online)
+						return nil
+					}
+				}
+			}
+		}
+	}
+
+	// 3. Search pinned messages if recent search didn't find it
+	pinned, pinErr := n.session.ChannelMessagesPinned(channelID)
+	if pinErr == nil && len(pinned) > 0 {
+		for _, msg := range pinned {
+			if botUserID != "" && msg.Author != nil && msg.Author.ID != botUserID {
+				continue
+			}
+			_, editErr := n.session.ChannelMessageEditEmbed(channelID, msg.ID, embed)
+			if editErr == nil {
+				n.statusMsgID = msg.ID
+				slog.Info("Edited pinned static status card", "channel_id", channelID, "message_id", msg.ID, "online", online)
+				return nil
+			}
+		}
+	}
+
+	// 4. Create single new static status message if no existing status card was found
+	msg, sendErr := n.session.ChannelMessageSendEmbed(channelID, embed)
+	if sendErr != nil {
+		slog.Warn("Failed to send status card embed", "channel_id", channelID, "err", sendErr)
+		return sendErr
+	}
+
+	n.statusMsgID = msg.ID
+	_ = n.session.ChannelMessagePin(channelID, msg.ID) // Best-effort pin (ignore 403)
+
+	slog.Info("Created static status card", "channel_id", channelID, "message_id", msg.ID, "online", online)
+	return nil
+}
+
+// PostDailyScrapeAnnouncement posts the 5:00 AM daily job update summary to DISCORD_ANNOUNCEMENT_CHANNEL_ID (or default server channel).
+func (n *Notifier) PostDailyScrapeAnnouncement(summary DailyScrapeSummary) error {
+	if n.session == nil {
+		return fmt.Errorf("discord session is nil")
+	}
+
+	channelID, err := n.resolveChannelID(n.cfg.DiscordAnnouncementChannelID)
+	if err != nil {
+		return fmt.Errorf("announcement channel resolution failed: %w", err)
+	}
+
+	embed := BuildDailyAnnouncementEmbed(summary)
+
+	_, sendErr := n.session.ChannelMessageSendEmbed(channelID, embed)
+	if sendErr != nil {
+		slog.Warn("Failed to post daily scrape announcement", "channel_id", channelID, "err", sendErr)
+		return sendErr
+	}
+
+	slog.Info("Posted daily scrape announcement", "channel_id", channelID, "inserted", summary.InsertedCount, "merged", summary.MergedCount)
+	return nil
+}
+
+// PostDevLogWebhook posts structured dev operational logs to DISCORD_LOG_WEBHOOK_URL or fallback channel.
+func (n *Notifier) PostDevLogWebhook(title string, description string, color int, fields map[string]string) {
+	if n.cfg != nil && n.cfg.DiscordLogWebhookURL != "" {
+		var discordFields []map[string]interface{}
+		for k, v := range fields {
+			discordFields = append(discordFields, map[string]interface{}{
+				"name":   k,
+				"value":  v,
+				"inline": true,
+			})
+		}
+
+		payload := map[string]interface{}{
+			"embeds": []map[string]interface{}{
+				{
+					"title":       title,
+					"description": description,
+					"color":       color,
+					"fields":      discordFields,
+					"footer": map[string]string{
+						"text": "JoblessYu Dev Log • " + time.Now().UTC().Format("15:04:05 UTC"),
+					},
+				},
+			},
+		}
+
+		body, err := json.Marshal(payload)
+		if err == nil {
+			req, reqErr := http.NewRequest("POST", n.cfg.DiscordLogWebhookURL, bytes.NewBuffer(body))
+			if reqErr == nil {
+				req.Header.Set("Content-Type", "application/json")
+				client := &http.Client{Timeout: 5 * time.Second}
+				resp, doErr := client.Do(req)
+				if doErr == nil {
+					resp.Body.Close()
+					return
+				}
+			}
+		}
+	}
+
+	// Fallback if webhook is empty or failed: send directly to resolved server text channel
+	channelID, err := n.resolveChannelID("")
+	if err != nil || n.session == nil {
+		return
+	}
+
+	var embedFields []*discordgo.MessageEmbedField
+	for k, v := range fields {
+		embedFields = append(embedFields, &discordgo.MessageEmbedField{
+			Name:   k,
+			Value:  v,
+			Inline: true,
+		})
+	}
+
+	embed := &discordgo.MessageEmbed{
+		Title:       title,
+		Description: description,
+		Color:       color,
+		Fields:      embedFields,
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: "JoblessYu Dev Log • " + time.Now().UTC().Format("15:04:05 UTC"),
+		},
+	}
+	_, _ = n.session.ChannelMessageSendEmbed(channelID, embed)
+}

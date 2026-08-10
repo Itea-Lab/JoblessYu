@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"JoblessYu/internal/job"
 
@@ -357,4 +358,102 @@ func truncateForDiscord(s string, max int) string {
 		return s[:max]
 	}
 	return s[:max-3] + "..."
+}
+
+// BuildStatusCardEmbed creates a rich embed for the static availability status card (Abyss Bot pattern).
+func BuildStatusCardEmbed(online bool, details StatusDetails) *discordgo.MessageEmbed {
+	color := 0x10B981 // Emerald green for Online
+	statusHeader := "🟢 ONLINE"
+	statusDesc := "JoblessYu is online and actively indexing IT job listings in Vietnam."
+
+	if !online {
+		color = 0xEF4444 // Crimson red for Offline
+		statusHeader = "🔴 OFFLINE"
+		statusDesc = "JoblessYu is currently offline for maintenance or system restart."
+	}
+
+	version := details.Version
+	if version == "" {
+		version = "v1.2.0"
+	}
+
+	lastScrape := "N/A"
+	if !details.LastScrapeTime.IsZero() {
+		lastScrape = details.LastScrapeTime.Format("2006-01-02 15:04 ICT")
+	}
+	nextScrape := "N/A"
+	if !details.NextScrapeTime.IsZero() {
+		nextScrape = details.NextScrapeTime.Format("2006-01-02 15:04 ICT")
+	}
+
+	retention := details.RetentionDays
+	if retention <= 0 {
+		retention = 30
+	}
+
+	return &discordgo.MessageEmbed{
+		Title:       statusHeader,
+		Description: statusDesc,
+		Color:       color,
+		Fields: []*discordgo.MessageEmbedField{
+			{
+				Name:   "📊 System Status",
+				Value:  fmt.Sprintf("• **Status**: `%s`\n• **Version**: `%s`\n• **Retention**: `%d Days`", statusHeader, version, retention),
+				Inline: true,
+			},
+			{
+				Name:   "📦 Job Pool & Schedule",
+				Value:  fmt.Sprintf("• **Active Jobs**: `%d`\n• **Last Scrape**: `%s`\n• **Next Scrape**: `%s`", details.ActiveJobs, lastScrape, nextScrape),
+				Inline: true,
+			},
+			{
+				Name:   "💡 Quick Start",
+				Value:  "Type `/jobs` in any channel to open the interactive job filter panel.",
+				Inline: false,
+			},
+		},
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: fmt.Sprintf("JoblessYu Service Monitor • %s", time.Now().Format("02/01/2006 15:04:05")),
+		},
+	}
+}
+
+// BuildDailyAnnouncementEmbed creates a rich summary embed for 5:00 AM ICT daily job updates.
+func BuildDailyAnnouncementEmbed(summary DailyScrapeSummary) *discordgo.MessageEmbed {
+	runDateStr := summary.RunTime.Format("02 Jan 2006")
+	if summary.RunTime.IsZero() {
+		runDateStr = time.Now().Format("02 Jan 2006")
+	}
+
+	desc := fmt.Sprintf("Fresh tech listings from Indeed, LinkedIn, and ITViec have been scraped, deduplicated, and enriched with AI metadata.\n\n"+
+		"**📈 Update Breakdown**\n"+
+		"• 🏢 **Total Scraped**: `%d roles` (`%d` JobSpy + `%d` ITViec)\n"+
+		"• 🆕 **Fresh Roles Added**: `+%d new listings`\n"+
+		"• 🔗 **Cross-Site Merged**: `%d duplicates linked`\n"+
+		"• 🧠 **AI Categorized**: `%d enriched`\n"+
+		"• 📦 **Active Pool**: `%d total listings available`",
+		summary.JobspyCount+summary.CollyCount,
+		summary.JobspyCount,
+		summary.CollyCount,
+		summary.InsertedCount,
+		summary.MergedCount,
+		summary.EnrichedCount,
+		summary.TotalActiveJobs,
+	)
+
+	return &discordgo.MessageEmbed{
+		Title:       fmt.Sprintf("🌅 Daily IT Job List Updated! — %s", runDateStr),
+		Description: desc,
+		Color:       0xF59E0B, // Gold / Amber
+		Fields: []*discordgo.MessageEmbedField{
+			{
+				Name:   "🚀 Explore Jobs",
+				Value:  "Type `/jobs` anywhere on Discord to filter by position, level, location, and job type!",
+				Inline: false,
+			},
+		},
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: fmt.Sprintf("JoblessYu Daily Feed • Completed in %s", summary.TotalDuration.Round(time.Second).String()),
+		},
+	}
 }

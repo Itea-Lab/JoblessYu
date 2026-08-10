@@ -19,6 +19,8 @@ import (
 func main() {
 	manualScrape := flag.Bool("scrape", false, "run a manual scrape (jobspy + Colly + enrichment), then exit")
 	manualEnrich := flag.Bool("enrich", false, "run a manual enrichment batch, then exit")
+	testNotify := flag.Bool("test-notify", false, "run notification & UI visibility test suite (status card online/offline, daily announcement, dev webhook), then exit")
+	evalAI := flag.Bool("eval-ai", false, "run AI evaluation & hallucination benchmark suite, then exit")
 	flag.Parse()
 
 	cfg := config.Load()
@@ -38,7 +40,13 @@ func main() {
 	enricher := job.NewBatchEnricher(repo, groq)
 	scraperMgr := scraper.NewScraperManager(repo, collyScraper, enricher, cfg.JobRetentionDays)
 
-	// Manual mode: run scrape or enrich, then exit (no bot, no cron).
+	// Manual mode / Eval mode: run scrape, enrich, or eval-ai, then exit (no bot, no cron).
+	if *evalAI {
+		log.Println("Running AI Evaluation & Hallucination Benchmark Suite...")
+		report := job.RunAIEval(ctx, groq)
+		job.PrintEvalReport(report, cfg.AIModel)
+		return
+	}
 	if *manualScrape {
 		log.Println("Manual scrape: starting full pipeline (jobspy + Colly + enrichment)...")
 		scraperMgr.RunScrapeAndEnrich(ctx)
@@ -50,7 +58,7 @@ func main() {
 		return
 	}
 
-	// Normal mode: start bot + cron.
+	// Normal mode / debug test mode.
 	svc := job.NewJobService(repo)
 
 	disbot, err := bot.NewBot(cfg, svc)
@@ -58,11 +66,21 @@ func main() {
 		log.Fatal("Error creating bot:", err)
 	}
 
+	if *testNotify {
+		if err := disbot.Start(); err != nil {
+			log.Fatal("Error starting bot session for test:", err)
+		}
+		runTestNotifications(disbot, cfg)
+		disbot.Stop()
+		return
+	}
+
 	if err := disbot.Start(); err != nil {
 		log.Fatal("Error starting bot:", err)
 	}
 	defer disbot.Stop()
 
+	scraperMgr.SetAnnouncer(disbot.Notifier())
 	scraperMgr.StartSchedule()
 	defer scraperMgr.StopSchedule()
 
@@ -73,6 +91,92 @@ func main() {
 	<-stop
 
 	fmt.Println("Shutting down...")
+}
+
+func runTestNotifications(disbot *bot.Bot, cfg *config.Config) {
+	fmt.Println()
+	fmt.Println("+--------------------------------------------------------------------------------+")
+	fmt.Println("| JOBLESSYU NOTIFICATION & UI VISIBILITY TEST SUITE                              |")
+	fmt.Println("+--------------------------------------------------------------------------------+")
+	notifier := disbot.Notifier()
+	if notifier == nil {
+		fmt.Println("| [ERROR] Bot Notifier is nil!")
+		fmt.Println("+--------------------------------------------------------------------------------+")
+		return
+	}
+
+	details := bot.StatusDetails{
+		ActiveJobs:     342,
+		LastScrapeTime: time.Now(),
+		NextScrapeTime: time.Now().Add(24 * time.Hour),
+		RetentionDays:  cfg.JobRetentionDays,
+		Version:        "v1.2.0 (DEBUG TEST)",
+	}
+
+	// 1. Test Status Card Online
+	statusChID := notifier.GetResolvedChannelID(cfg.DiscordStatusChannelID)
+	fmt.Printf("| [1/4] Testing Status Card Online (🟢 ONLINE) -> Channel ID: %s...\n", statusChID)
+	if err := notifier.UpdateStatusCard(true, details); err != nil {
+		fmt.Printf("|   └─ 🔴 Failed: %v\n", err)
+	} else {
+		fmt.Printf("|   └─ 🟢 SUCCESS: Sent & pinned Online status card to channel!\n")
+	}
+
+	time.Sleep(1 * time.Second)
+
+	// 2. Test Daily Announcement
+	announceChID := notifier.GetResolvedChannelID(cfg.DiscordAnnouncementChannelID)
+	fmt.Printf("| [2/4] Testing Daily Scrape Announcement (🌅 Daily IT Job List Updated) -> Channel ID: %s...\n", announceChID)
+	summary := bot.DailyScrapeSummary{
+		RunTime:         time.Now(),
+		TotalDuration:   8 * time.Minute,
+		JobspyCount:     80,
+		CollyCount:      40,
+		InsertedCount:   38,
+		MergedCount:     14,
+		EnrichedCount:   52,
+		TotalActiveJobs: 342,
+	}
+	if err := notifier.PostDailyScrapeAnnouncement(summary); err != nil {
+		fmt.Printf("|   └─ 🔴 Failed: %v\n", err)
+	} else {
+		fmt.Printf("|   └─ 🟢 SUCCESS: Sent daily job update announcement to channel!\n")
+	}
+
+	time.Sleep(1 * time.Second)
+
+	// 3. Test Developer Webhook / Fallback Log
+	logTarget := cfg.DiscordLogWebhookURL
+	if logTarget == "" {
+		logTarget = "Fallback Server Channel: " + statusChID
+	}
+	fmt.Printf("| [3/4] Testing Developer Log Card -> Target: %s...\n", logTarget)
+	notifier.PostDevLogWebhook(
+		"🧪 DEBUG TEST: Pipeline Verification",
+		"This is an automated test card sent via Discord Notifier.",
+		0x3B82F6, // Blue
+		map[string]string{
+			"Environment": "Development Debug Mode",
+			"Test Time":   time.Now().Format("15:04:05 ICT"),
+			"Status":      "PASSED",
+		},
+	)
+	fmt.Println("|   └─ 🟢 SUCCESS: Sent log card!")
+
+	time.Sleep(2 * time.Second)
+
+	// 4. Test Status Card Offline
+	fmt.Printf("| [4/4] Testing Status Card Offline (🔴 OFFLINE) -> Channel ID: %s...\n", statusChID)
+	if err := notifier.UpdateStatusCard(false, details); err != nil {
+		fmt.Printf("|   └─ 🔴 Failed: %v\n", err)
+	} else {
+		fmt.Printf("|   └─ 🟢 SUCCESS: Updated status card to Offline!\n")
+	}
+
+	fmt.Println("+--------------------------------------------------------------------------------+")
+	fmt.Println("| TEST SUITE COMPLETE: Check your Discord server for the echoed messages!        |")
+	fmt.Println("+--------------------------------------------------------------------------------+")
+	fmt.Println()
 }
 
 func runManualEnrich(ctx context.Context, enricher *job.BatchEnricher) {

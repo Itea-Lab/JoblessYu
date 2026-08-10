@@ -4,12 +4,15 @@ import os
 import re
 
 import pandas as pd
+# pyrefly: ignore [missing-import]
 from dotenv import load_dotenv
+# pyrefly: ignore [missing-import]
 from jobspy import scrape_jobs
 
 load_dotenv()
 
 try:
+    # pyrefly: ignore [missing-import]
     import psycopg
 except ImportError:
     psycopg = None
@@ -98,8 +101,6 @@ def save_jobs_to_neon(jobs_df):
                                 THEN NULL ELSE jobs.ai_processed_at END,
         level = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
                      THEN NULL ELSE jobs.level END,
-        job_type_normalized = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
-                                   THEN NULL ELSE jobs.job_type_normalized END,
         tags = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
                     THEN '{}'::jsonb ELSE jobs.tags END,
         summary = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
@@ -108,8 +109,6 @@ def save_jobs_to_neon(jobs_df):
                       THEN NULL ELSE jobs.salary END,
         remote = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
                       THEN NULL ELSE jobs.remote END,
-        ai_model = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
-                        THEN NULL ELSE jobs.ai_model END,
         expertise = CASE WHEN jobs.description IS DISTINCT FROM EXCLUDED.description
                          THEN NULL ELSE jobs.expertise END;
     """
@@ -169,11 +168,12 @@ def JobScan():
         '"security engineer" OR "solution architect" OR "product owner" OR '
         '"scrum master" OR "mobile developer" OR "embedded engineer"'
     )
+    target_limit = int(os.getenv("SCRAPE_TARGET_LIMIT", "30"))
     jobs = scrape_jobs(
         site_name=["indeed", "linkedin"],
         search_term=search_term,
         location="vietnam",
-        results_wanted=40,
+        results_wanted=target_limit,
         hours_old=24,
         country_indeed='vietnam',
     )

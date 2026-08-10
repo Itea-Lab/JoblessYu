@@ -158,63 +158,17 @@ func (g *GroqExtractor) Extract(ctx context.Context, title, description string) 
 	return JobMeta{}, fmt.Errorf("groq extraction failed after %d attempts: %w", groqMaxRetries+1, lastErr)
 }
 
-func (g *GroqExtractor) callGroq(ctx context.Context, systemMsg, userMsg, title, description string) (JobMeta, error) {
-	resp, err := g.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: g.model,
-		Messages: []openai.ChatCompletionMessage{
-			{Role: openai.ChatMessageRoleSystem, Content: systemMsg},
-			{Role: openai.ChatMessageRoleUser, Content: userMsg},
-		},
-		Temperature: 0.0,
-		MaxTokens:   groqMaxTokens,
-	})
-	if err != nil {
-		// API/network/rate-limit error — return as plain error so
-		// Extract() doesn't retry. The BatchEnricher handles fallback.
-		return JobMeta{}, fmt.Errorf("groq API call: %w", err)
-	}
+type rawJobMeta struct {
+	Level     string              `json:"level"`
+	Type      string              `json:"type"`
+	Expertise string              `json:"expertise"`
+	Tags      map[string][]string `json:"tags"`
+	Salary    string              `json:"salary"`
+	Remote    interface{}         `json:"remote"`
+	Summary   string              `json:"summary"`
+}
 
-	if len(resp.Choices) == 0 {
-		return JobMeta{}, fmt.Errorf("groq returned no choices")
-	}
-
-	content := resp.Choices[0].Message.Content
-	content = strings.TrimSpace(content)
-	if content == "" {
-		return JobMeta{}, fmt.Errorf("groq returned empty content")
-	}
-
-	// Extract JSON from the response. The model may wrap it in markdown
-	// fences (```json ... ```) or add prose around it. Find the first {...}
-	// block and parse that. This is more robust than response_format:
-	// json_object mode, which causes 400 errors on certain models/prompts.
-	jsonStr := extractJSON(content)
-	if jsonStr == "" {
-		return JobMeta{}, &jsonParseError{err: fmt.Errorf("no JSON object found in response (content: %s)", truncate(content, 200))}
-	}
-
-	// Clean the JSON string — the AI sometimes adds // comments, trailing
-	// commas, or other non-standard syntax that causes json.Unmarshal to fail.
-	jsonStr = cleanJSON(jsonStr)
-
-	// Unmarshal into a raw struct first — the AI sometimes returns "remote"
-	// as a string ("true"/"false") instead of a boolean (true/false), which
-	// causes json.Unmarshal to fail on the JobMeta struct. Using interface{}
-	// accepts both types, then we convert manually.
-	var raw struct {
-		Level     string              `json:"level"`
-		Type      string              `json:"type"`
-		Expertise string              `json:"expertise"`
-		Tags      map[string][]string `json:"tags"`
-		Salary    string              `json:"salary"`
-		Remote    interface{}         `json:"remote"`
-		Summary   string              `json:"summary"`
-	}
-	if err := json.Unmarshal([]byte(jsonStr), &raw); err != nil {
-		return JobMeta{}, &jsonParseError{err: fmt.Errorf("parse groq JSON: %w (content: %s)", err, truncate(jsonStr, 200))}
-	}
-
-	// Build JobMeta from the raw struct, converting Remote from interface{} to bool.
+func (raw *rawJobMeta) toJobMeta(title, description string) JobMeta {
 	var meta JobMeta
 	meta.Level = raw.Level
 	meta.Type = raw.Type
@@ -231,16 +185,12 @@ func (g *GroqExtractor) callGroq(ctx context.Context, systemMsg, userMsg, title,
 		meta.Remote = false
 	}
 
-	// Validate required fields. Without response_format constraints, the
-	// model may omit fields — defaults keep the structure valid.
 	if meta.Level == "" {
 		meta.Level = LevelUnknown
 	}
 	if meta.Tags == nil {
 		meta.Tags = map[string][]string{}
 	}
-	// Filter "none" from tag values — the AI sometimes returns ["none"]
-	// when it can't find skills. Remove these and empty categories.
 	for cat, tags := range meta.Tags {
 		filtered := tags[:0]
 		for _, t := range tags {
@@ -254,7 +204,6 @@ func (g *GroqExtractor) callGroq(ctx context.Context, systemMsg, userMsg, title,
 			meta.Tags[cat] = filtered
 		}
 	}
-	// Validate and normalize Type. Allowed values: Full-time, Part-time, Unknown.
 	switch strings.ToLower(strings.TrimSpace(meta.Type)) {
 	case "fulltime", "full-time", "full time":
 		meta.Type = "Full-time"
@@ -263,8 +212,6 @@ func (g *GroqExtractor) callGroq(ctx context.Context, systemMsg, userMsg, title,
 	case "unknown", "":
 		meta.Type = "Unknown"
 	default:
-		// Invalid choice (e.g. "Internship" or non-standard output).
-		// Fall back to regex detection on title + description.
 		regexType := NewRegexExtractor().detectType(strings.ToLower(title + "\n" + description))
 		if regexType != "" {
 			meta.Type = regexType
@@ -273,11 +220,50 @@ func (g *GroqExtractor) callGroq(ctx context.Context, systemMsg, userMsg, title,
 		}
 	}
 
-	// Validate expertise: AI may return non-canonical values (e.g. "security"
-	// instead of "support_security"). Fall back to keyword detection.
 	if meta.Expertise == "" || !IsValidExpertise(meta.Expertise) {
 		meta.Expertise = DetectExpertise(title, description)
 	}
+
+	return meta
+}
+
+func (g *GroqExtractor) callGroq(ctx context.Context, systemMsg, userMsg, title, description string) (JobMeta, error) {
+	resp, err := g.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+		Model: g.model,
+		Messages: []openai.ChatCompletionMessage{
+			{Role: openai.ChatMessageRoleSystem, Content: systemMsg},
+			{Role: openai.ChatMessageRoleUser, Content: userMsg},
+		},
+		Temperature: 0.0,
+		MaxTokens:   groqMaxTokens,
+	})
+	if err != nil {
+		return JobMeta{}, fmt.Errorf("groq API call: %w", err)
+	}
+
+	if len(resp.Choices) == 0 {
+		return JobMeta{}, fmt.Errorf("groq returned no choices")
+	}
+
+	content := resp.Choices[0].Message.Content
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return JobMeta{}, fmt.Errorf("groq returned empty content")
+	}
+
+	jsonStr := extractJSON(content)
+	if jsonStr == "" {
+		return JobMeta{}, &jsonParseError{err: fmt.Errorf("no JSON object found in response (content: %s)", truncate(content, 200))}
+	}
+
+	jsonStr = cleanJSON(jsonStr)
+
+	var raw rawJobMeta
+	if err := json.Unmarshal([]byte(jsonStr), &raw); err != nil {
+		return JobMeta{}, &jsonParseError{err: fmt.Errorf("parse groq JSON: %w (content: %s)", err, truncate(jsonStr, 200))}
+	}
+
+	meta := raw.toJobMeta(title, description)
 	meta.Model = g.model
 
 	return meta, nil
@@ -369,4 +355,150 @@ func cleanJSON(s string) string {
 	}
 
 	return b.String()
+}
+
+// ExtractBatch classifies a slice of up to 10 jobs in a single Groq API call.
+func (g *GroqExtractor) ExtractBatch(ctx context.Context, batch []JobBatchItem) ([]JobMeta, error) {
+	if len(batch) == 0 {
+		return nil, nil
+	}
+	if len(batch) == 1 {
+		meta, err := g.Extract(ctx, batch[0].Title, batch[0].Description)
+		if err != nil {
+			return nil, err
+		}
+		return []JobMeta{meta}, nil
+	}
+
+	if g.apiKey == "" {
+		return nil, fmt.Errorf("groq: API key not configured")
+	}
+
+	// Rate-limit: enforce 18s spacing between calls
+	if g.firstCall.Load() {
+		g.firstCall.Store(false)
+	} else {
+		select {
+		case <-g.ticker.C:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+
+	var sb strings.Builder
+	sb.WriteString("Classify the following IT job descriptions. Return a JSON array of objects, one per job, preserving order:\n\n")
+
+	for i, item := range batch {
+		desc := item.Description
+		if len(desc) > groqMaxJDChars {
+			desc = desc[:groqMaxJDChars]
+		}
+		sb.WriteString(fmt.Sprintf("--- Job %d (ID: %d) ---\nTitle: %s\nDescription:\n%s\n\n", i+1, item.ID, item.Title, desc))
+	}
+
+	systemMsg := skillsPrompt + "\n\nReturn a JSON array of objects where each element corresponds to a job in the batch order. Format:\n[{" + jobMetaSchemaDescription + "}, ...]"
+	userMsg := sb.String() + "\nReturn ONLY the JSON array. No prose, no markdown fences."
+
+	var lastErr error
+	for attempt := 0; attempt <= groqMaxRetries; attempt++ {
+		metas, err := g.callGroqBatch(ctx, systemMsg, userMsg, batch)
+		if err == nil {
+			return metas, nil
+		}
+		var parseErr *jsonParseError
+		if !errors.As(err, &parseErr) {
+			return nil, err
+		}
+		lastErr = err
+		slog.Warn("Groq batch JSON parse error, retrying", "attempt", attempt+1, "err", err)
+	}
+
+	return nil, fmt.Errorf("groq batch extraction failed after %d attempts: %w", groqMaxRetries+1, lastErr)
+}
+
+func (g *GroqExtractor) callGroqBatch(ctx context.Context, systemMsg, userMsg string, batch []JobBatchItem) ([]JobMeta, error) {
+	resp, err := g.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+		Model: g.model,
+		Messages: []openai.ChatCompletionMessage{
+			{Role: openai.ChatMessageRoleSystem, Content: systemMsg},
+			{Role: openai.ChatMessageRoleUser, Content: userMsg},
+		},
+		Temperature: 0.0,
+		MaxTokens:   groqMaxTokens * 2,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("groq API batch call: %w", err)
+	}
+
+	if len(resp.Choices) == 0 {
+		return nil, fmt.Errorf("groq returned no choices for batch")
+	}
+
+	content := strings.TrimSpace(resp.Choices[0].Message.Content)
+	if content == "" {
+		return nil, fmt.Errorf("groq returned empty content for batch")
+	}
+
+	jsonStr := extractJSONArray(content)
+	if jsonStr == "" {
+		return nil, &jsonParseError{err: fmt.Errorf("no JSON array found in batch response")}
+	}
+
+	jsonStr = cleanJSON(jsonStr)
+
+	var rawMetas []rawJobMeta
+	if err := json.Unmarshal([]byte(jsonStr), &rawMetas); err != nil {
+		return nil, &jsonParseError{err: fmt.Errorf("unmarshal batch json: %w", err)}
+	}
+
+	if len(rawMetas) != len(batch) {
+		return nil, &jsonParseError{err: fmt.Errorf("batch count mismatch: got %d, expected %d", len(rawMetas), len(batch))}
+	}
+
+	metas := make([]JobMeta, len(batch))
+	for i, raw := range rawMetas {
+		meta := raw.toJobMeta(batch[i].Title, batch[i].Description)
+		meta.Model = g.model
+		metas[i] = meta
+	}
+
+	return metas, nil
+}
+
+func extractJSONArray(s string) string {
+	start := strings.Index(s, "[")
+	if start == -1 {
+		return ""
+	}
+	depth := 0
+	inString := false
+	escaped := false
+
+	for i := start; i < len(s); i++ {
+		c := s[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if c == '\\' && inString {
+			escaped = true
+			continue
+		}
+		if c == '"' {
+			inString = !inString
+			continue
+		}
+		if !inString {
+			switch c {
+			case '[':
+				depth++
+			case ']':
+				depth--
+				if depth == 0 {
+					return s[start : i+1]
+				}
+			}
+		}
+	}
+	return ""
 }

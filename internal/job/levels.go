@@ -40,7 +40,7 @@ var LevelRules = []LevelRule{
 	{Name: "Intern", WordPattern: `intern(ship)?`, YearPattern: `\m0\s*\+?\s*years?`, NoExpPattern: `(no|zero)\s+(experience|exp)`},
 	{Name: "Fresher", WordPattern: `fresher`, YearPattern: `\m(1|2)\s*\+?\s*years?`},
 	{Name: "Junior", WordPattern: `junior`, YearPattern: `\m(3|4)\s*\+?\s*years?`},
-	{Name: "Senior", WordPattern: `senior`, YearPattern: `\m([5-9]|\d{2})\s*\+?\s*years?`},
+	{Name: "Senior", WordPattern: `senior|lead|principal|staff`, YearPattern: `\m([5-9]|\d{2})\s*\+?\s*years?`},
 }
 
 // LevelUnknown is the canonical sentinel returned when detection finds no

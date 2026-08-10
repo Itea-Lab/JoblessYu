@@ -15,3 +15,14 @@ import "context"
 type Extractor interface {
 	Extract(ctx context.Context, title, description string) (JobMeta, error)
 }
+
+type JobBatchItem struct {
+	ID          int64
+	Title       string
+	Description string
+}
+
+type BatchExtractor interface {
+	Extractor
+	ExtractBatch(ctx context.Context, batch []JobBatchItem) ([]JobMeta, error)
+}

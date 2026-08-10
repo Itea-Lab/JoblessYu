@@ -61,58 +61,102 @@ func (e *BatchEnricher) Run(ctx context.Context) error {
 		return nil
 	}
 
-	slog.Info("enricher: starting batch", "jobs", len(jobs))
+	slog.Info("enricher: starting batch processing", "jobs", len(jobs))
 	start := time.Now()
 	enriched, skipped, deleted := 0, 0, 0
 
-	for i, j := range jobs {
-		if ctx.Err() != nil {
-			slog.Warn("enricher: context cancelled, stopping batch",
-				"processed", i, "remaining", len(jobs)-i)
-			break
-		}
-
-		// Delete jobs with empty/short descriptions — they're useless.
+	// Step 1: Filter out short/invalid jobs
+	var validJobs []JobEntry
+	for _, j := range jobs {
 		if len(strings.TrimSpace(j.Description)) < groqMinJDLength {
 			if err := e.store.DeleteJob(ctx, j.ID); err != nil {
 				slog.Warn("enricher: failed to delete short-JD job", "job_id", j.ID, "err", err)
 			} else {
 				deleted++
 			}
+		} else {
+			validJobs = append(validJobs, j)
+		}
+	}
+
+	// Step 2: Process in 10-job chunks if BatchExtractor is available
+	batchExtractor, isBatchSupported := e.extractor.(BatchExtractor)
+	const batchChunkSize = 10
+
+	for idx := 0; idx < len(validJobs); {
+		if ctx.Err() != nil {
+			slog.Warn("enricher: context cancelled, stopping batch", "processed", idx, "remaining", len(validJobs)-idx)
+			break
+		}
+
+		end := idx + batchChunkSize
+		if end > len(validJobs) {
+			end = len(validJobs)
+		}
+		chunk := validJobs[idx:end]
+
+		var metas []JobMeta
+		var batchErr error
+
+		if isBatchSupported && len(chunk) > 1 {
+			items := make([]JobBatchItem, len(chunk))
+			for k, j := range chunk {
+				items[k] = JobBatchItem{ID: j.ID, Title: j.Title, Description: j.Description}
+			}
+			metas, batchErr = batchExtractor.ExtractBatch(ctx, items)
+		} else {
+			batchErr = fmt.Errorf("batch not supported or single item")
+		}
+
+		if batchErr == nil && len(metas) == len(chunk) {
+			// Batch success
+			for k, j := range chunk {
+				meta := metas[k]
+				if j.Remote {
+					meta.Remote = true
+				}
+				if err := e.store.MarkAIProcessed(ctx, j.ID, meta); err != nil {
+					slog.Warn("enricher: failed to persist AI metadata", "job_id", j.ID, "err", err)
+					skipped++
+				} else {
+					enriched++
+				}
+			}
+			slog.Info("enricher: 10-job batch successfully enriched", "batch_size", len(chunk), "progress", fmt.Sprintf("%d/%d", end, len(validJobs)))
+			idx = end
 			continue
 		}
 
-		// Enrich with retry logic.
-		meta, err := e.enrichWithRetry(ctx, j)
-		if err != nil {
-			slog.Warn("enricher: job enrichment failed, skipping",
-				"job_id", j.ID, "title", j.Title, "err", err)
-			skipped++
-			continue
+		// Fallback: process chunk item-by-item with retry logic
+		if batchErr != nil && isBatchSupported && len(chunk) > 1 {
+			slog.Warn("enricher: batch extraction failed, falling back to item-by-item retry", "err", batchErr)
 		}
 
-		// If the scraper already detected remote=true (e.g. ITViec badge),
-		// keep that value — it's more reliable than AI guessing from JD text.
-		if j.Remote {
-			meta.Remote = true
+		for _, j := range chunk {
+			if ctx.Err() != nil {
+				break
+			}
+			meta, err := e.enrichWithRetry(ctx, j)
+			if err != nil {
+				slog.Warn("enricher: job enrichment failed, skipping", "job_id", j.ID, "title", j.Title, "err", err)
+				skipped++
+			} else {
+				if j.Remote {
+					meta.Remote = true
+				}
+				if err := e.store.MarkAIProcessed(ctx, j.ID, meta); err != nil {
+					slog.Warn("enricher: failed to persist AI metadata", "job_id", j.ID, "err", err)
+					skipped++
+				} else {
+					enriched++
+				}
+			}
 		}
-
-		if err := e.store.MarkAIProcessed(ctx, j.ID, meta); err != nil {
-			slog.Warn("enricher: failed to persist AI metadata",
-				"job_id", j.ID, "err", err)
-			skipped++
-			continue
-		}
-
-		enriched++
-		slog.Info("enricher: job enriched",
-			"job_id", j.ID, "title", j.Title, "level", meta.Level,
-			"expertise", meta.Expertise,
-			"progress", fmt.Sprintf("%d/%d", i+1, len(jobs)))
+		idx = end
 	}
 
 	elapsed := time.Since(start).Round(time.Second)
-	slog.Info("enricher: batch complete",
+	slog.Info("enricher: batch processing complete",
 		"enriched", enriched, "skipped", skipped, "deleted", deleted,
 		"total", len(jobs), "elapsed", elapsed)
 

@@ -16,8 +16,15 @@ import (
 
 	"github.com/robfig/cron/v3"
 
+	"JoblessYu/internal/bot"
 	"JoblessYu/internal/job"
 )
+
+// Announcer interface decouples ScraperManager from Discord notification logic.
+type Announcer interface {
+	PostDailyScrapeAnnouncement(summary bot.DailyScrapeSummary) error
+	PostDevLogWebhook(title string, description string, color int, fields map[string]string)
+}
 
 // ScraperManager orchestrates the daily hybrid scraping pipeline:
 //   - Python jobspy (Indeed + LinkedIn) — subprocess, writes to DB directly
@@ -31,6 +38,7 @@ type ScraperManager struct {
 	collyScraper *job.CollyScraper
 	enricher     *job.BatchEnricher
 	repo         *job.JobRepository
+	announcer    Announcer
 
 	pythonScript  string
 	pythonExe     string
@@ -60,6 +68,10 @@ func NewScraperManager(
 	m.pythonScript = m.resolveScriptPath()
 	m.pythonExe = m.resolvePythonExe()
 	return m
+}
+
+func (m *ScraperManager) SetAnnouncer(a Announcer) {
+	m.announcer = a
 }
 
 // resolveScriptPath locates scraper-python/JoblessYu.py by walking up
@@ -130,7 +142,7 @@ func (m *ScraperManager) StartSchedule() {
 	fmt.Println("+--------------------------------------------------------------------------------+")
 	fmt.Println("| JOBLESSYU SCRAPER SCHEDULE ACTIVATED                                           |")
 	fmt.Println("+--------------------------------------------------------------------------------+")
-	fmt.Println("| Daily Scrape:   05:00 ICT (22:00 UTC) (40 ITViec + 40 Indeed + 40 LinkedIn)    |")
+	fmt.Println("| Daily Scrape:   05:00 ICT (22:00 UTC) (30 ITViec + 30 Indeed + 30 LinkedIn)    |")
 	fmt.Printf("| Weekly Cleanup: Mon 04:55 ICT (Sun 21:55 UTC) (Retention: %d days)             |\n", m.retentionDays)
 	fmt.Println("+--------------------------------------------------------------------------------+")
 	m.cron.Start()
@@ -170,7 +182,7 @@ func (m *ScraperManager) runScrapeAndEnrich(ctx context.Context) {
 	// Phase 1: jobspy (Indeed + LinkedIn)
 	fmt.Println()
 	fmt.Println("+--- [1/4] SCRAPING (Indeed & LinkedIn via JobSpy) -------------------------------+")
-	fmt.Println("| Target: 40 Indeed + 40 LinkedIn jobs                                           |")
+	fmt.Println("| Target: 30 Indeed + 30 LinkedIn jobs                                           |")
 	jobspyStart := time.Now()
 	jobspyCount, jobspyErr := m.runPythonScraper(ctx)
 	jobspyDuration := time.Since(jobspyStart).Round(100 * time.Millisecond)
@@ -185,7 +197,7 @@ func (m *ScraperManager) runScrapeAndEnrich(ctx context.Context) {
 	// Phase 2: Colly (ITViec)
 	fmt.Println()
 	fmt.Println("+--- [2/4] SCRAPING (ITViec via Colly) ------------------------------------------+")
-	fmt.Println("| Target: 40 ITViec jobs (Freshness <= 24h)                                      |")
+	fmt.Println("| Target: 30 ITViec jobs (Freshness <= 24h)                                      |")
 	collyStart := time.Now()
 	itviecJobs, collyErr := m.collyScraper.ScrapeITViec(ctx)
 	collyDuration := time.Since(collyStart).Round(100 * time.Millisecond)
@@ -249,6 +261,37 @@ func (m *ScraperManager) runScrapeAndEnrich(ctx context.Context) {
 	fmt.Printf("| TOTAL EXECUTION TIME: %-56s |\n", totalDuration.String())
 	fmt.Println("+--------------------------------------------------------------------------------+")
 	fmt.Println()
+
+	// Trigger Discord Announcements & Dev Webhook Logs
+	if m.announcer != nil {
+		totalActive := unenrichedCount + enrichedCount
+		summary := bot.DailyScrapeSummary{
+			RunTime:         pipelineStart,
+			TotalDuration:   totalDuration,
+			JobspyCount:     jobspyCount,
+			CollyCount:      len(itviecJobs),
+			InsertedCount:   stats.Inserted,
+			MergedCount:     stats.Merged,
+			EnrichedCount:   unenrichedCount,
+			TotalActiveJobs: totalActive,
+		}
+		if err := m.announcer.PostDailyScrapeAnnouncement(summary); err != nil {
+			slog.Warn("Failed to post daily scrape announcement", "err", err)
+		}
+
+		m.announcer.PostDevLogWebhook(
+			"🌅 Daily Scrape & AI Pipeline Complete",
+			fmt.Sprintf("Daily 5:00 AM ICT pipeline execution finished in %s.", totalDuration.String()),
+			0x10B981,
+			map[string]string{
+				"JobSpy (Indeed/LinkedIn)": fmt.Sprintf("%d jobs (%s)", jobspyCount, jobspyStatus),
+				"Colly (ITViec)":           fmt.Sprintf("%d jobs (%s)", len(itviecJobs), collyStatus),
+				"Neon DB Upsert":           fmt.Sprintf("%d inserted, %d merged", stats.Inserted, stats.Merged),
+				"Groq AI Batch":            fmt.Sprintf("%d processed (%s)", unenrichedCount, enrichStatus),
+				"Total Active Pool":        fmt.Sprintf("%d active jobs", totalActive),
+			},
+		)
+	}
 }
 
 // pythonJobCountRe matches "40 jobs upserted to Neon." from jobspy output.
