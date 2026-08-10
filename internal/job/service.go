@@ -67,3 +67,13 @@ func (s *JobService) GetScrapeStats(ctx context.Context) (int, time.Time, error)
 	}
 	return 0, time.Time{}, nil
 }
+
+// GetPipelineSummaryStats delegates to underlying store to retrieve recent 24-hour pipeline metrics for static Card 2 initialization.
+func (s *JobService) GetPipelineSummaryStats(ctx context.Context) (PipelineStats, error) {
+	if statsStore, ok := s.store.(interface {
+		GetPipelineSummaryStats(ctx context.Context) (PipelineStats, error)
+	}); ok {
+		return statsStore.GetPipelineSummaryStats(ctx)
+	}
+	return PipelineStats{}, nil
+}

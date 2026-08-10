@@ -119,6 +119,24 @@ func (b *Bot) fetchStatusDetails(ctx context.Context) StatusDetails {
 	return details
 }
 
+func (b *Bot) fetchDailySummaryDetails(ctx context.Context) DailyScrapeSummary {
+	summary := DailyScrapeSummary{}
+	if b.jobService != nil {
+		if statsService, ok := b.jobService.(*job.JobService); ok {
+			pStats, err := statsService.GetPipelineSummaryStats(ctx)
+			if err == nil {
+				summary.RunTime = pStats.LastScrapeTime
+				summary.JobspyCount = pStats.RecentJobspyCount
+				summary.CollyCount = pStats.RecentCollyCount
+				summary.InsertedCount = pStats.Recent24hAdded
+				summary.EnrichedCount = pStats.Recent24hEnriched
+				summary.TotalActiveJobs = pStats.TotalActiveJobs
+			}
+		}
+	}
+	return summary
+}
+
 func (b *Bot) cacheJanitor() {
 	ticker := time.NewTicker(jobsCacheSweepEvery)
 	defer ticker.Stop()
@@ -165,7 +183,7 @@ func (b *Bot) Start() error {
 		log.Println("Failed to overwrite slash commands:", err)
 	}
 
-	// Update static availability card to Online with real DB stats
+	// Update static availability card (Card 1) & daily summary card (Card 2) with real DB stats
 	if b.notifier != nil {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -173,6 +191,13 @@ func (b *Bot) Start() error {
 			details := b.fetchStatusDetails(ctx)
 			if err := b.notifier.UpdateStatusCard(true, details); err != nil {
 				log.Println("Note: Status card update:", err)
+			}
+			summary := b.fetchDailySummaryDetails(ctx)
+			if summary.TotalActiveJobs == 0 {
+				summary.TotalActiveJobs = details.ActiveJobs
+			}
+			if err := b.notifier.UpdateDailySummaryCard(summary); err != nil {
+				log.Println("Note: Daily summary card update:", err)
 			}
 		}()
 	}

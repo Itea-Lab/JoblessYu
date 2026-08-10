@@ -377,15 +377,6 @@ func BuildStatusCardEmbed(online bool, details StatusDetails) *discordgo.Message
 		version = "v1.2.0"
 	}
 
-	lastScrape := "N/A"
-	if !details.LastScrapeTime.IsZero() {
-		lastScrape = details.LastScrapeTime.Format("2006-01-02 15:04 ICT")
-	}
-	nextScrape := "N/A"
-	if !details.NextScrapeTime.IsZero() {
-		nextScrape = details.NextScrapeTime.Format("2006-01-02 15:04 ICT")
-	}
-
 	retention := details.RetentionDays
 	if retention <= 0 {
 		retention = 30
@@ -402,8 +393,8 @@ func BuildStatusCardEmbed(online bool, details StatusDetails) *discordgo.Message
 				Inline: true,
 			},
 			{
-				Name:   "📦 Job Pool & Schedule",
-				Value:  fmt.Sprintf("• **Active Jobs**: `%d`\n• **Last Scrape**: `%s`\n• **Next Scrape**: `%s`", details.ActiveJobs, lastScrape, nextScrape),
+				Name:   "📦 Active Job Pool",
+				Value:  fmt.Sprintf("• **Active Jobs**: `%d`", details.ActiveJobs),
 				Inline: true,
 			},
 			{
@@ -418,42 +409,41 @@ func BuildStatusCardEmbed(online bool, details StatusDetails) *discordgo.Message
 	}
 }
 
-// BuildDailyAnnouncementEmbed creates a rich summary embed for 5:00 AM ICT daily job updates.
+// BuildDailyAnnouncementEmbed creates a rich summary embed for static 5:00 AM ICT daily job updates.
 func BuildDailyAnnouncementEmbed(summary DailyScrapeSummary) *discordgo.MessageEmbed {
-	runDateStr := summary.RunTime.Format("02 Jan 2006")
-	if summary.RunTime.IsZero() {
-		runDateStr = time.Now().Format("02 Jan 2006")
+	locICT := time.FixedZone("ICT", 7*3600)
+	lastScrapeStr := "N/A"
+	if !summary.RunTime.IsZero() {
+		lastScrapeStr = summary.RunTime.In(locICT).Format("02 Jan 2006 15:04 ICT")
 	}
+	nextScrapeStr := CalculateNextScrapeTime(time.Now()).In(locICT).Format("02 Jan 2006 15:04 ICT")
 
-	desc := fmt.Sprintf("Fresh tech listings from Indeed, LinkedIn, and ITViec have been scraped, deduplicated, and enriched with AI metadata.\n\n"+
-		"**📈 Update Breakdown**\n"+
-		"• 🏢 **Total Scraped**: `%d roles` (`%d` JobSpy + `%d` ITViec)\n"+
-		"• 🆕 **Fresh Roles Added**: `+%d new listings`\n"+
-		"• 🔗 **Cross-Site Merged**: `%d duplicates linked`\n"+
-		"• 🧠 **AI Categorized**: `%d enriched`\n"+
-		"• 📦 **Active Pool**: `%d total listings available`",
-		summary.JobspyCount+summary.CollyCount,
-		summary.JobspyCount,
-		summary.CollyCount,
-		summary.InsertedCount,
-		summary.MergedCount,
-		summary.EnrichedCount,
-		summary.TotalActiveJobs,
-	)
+	scrapedTotal := summary.JobspyCount + summary.CollyCount
 
 	return &discordgo.MessageEmbed{
-		Title:       fmt.Sprintf("🌅 Daily IT Job List Updated! — %s", runDateStr),
-		Description: desc,
+		Title:       "🌅 DAILY PIPELINE SUMMARY",
+		Description: "Daily IT job listings scraped from Indeed, LinkedIn, and ITViec with AI enrichment.",
 		Color:       0xF59E0B, // Gold / Amber
 		Fields: []*discordgo.MessageEmbedField{
 			{
+				Name:   "📅 Schedule & Timestamps",
+				Value:  fmt.Sprintf("• **Last Scrape**: `%s`\n• **Next Scrape**: `%s`", lastScrapeStr, nextScrapeStr),
+				Inline: true,
+			},
+			{
+				Name: "📈 Last Pipeline Run",
+				Value: fmt.Sprintf("• **Total Scraped**: `%d roles` (`%d` JobSpy + `%d` ITViec)\n• **Fresh Roles Added**: `+%d new listings`\n• **Cross-Site Merged**: `%d duplicates linked`\n• **AI Categorized**: `%d enriched`\n• **Active Pool**: `%d total listings`",
+					scrapedTotal, summary.JobspyCount, summary.CollyCount, summary.InsertedCount, summary.MergedCount, summary.EnrichedCount, summary.TotalActiveJobs),
+				Inline: false,
+			},
+			{
 				Name:   "🚀 Explore Jobs",
-				Value:  "Type `/jobs` anywhere on Discord to filter by position, level, location, and job type!",
+				Value:  "Type `/jobs` anywhere on Discord to filter by position, level, location, and job type! (Results are ephemeral — only visible to you).",
 				Inline: false,
 			},
 		},
 		Footer: &discordgo.MessageEmbedFooter{
-			Text: fmt.Sprintf("JoblessYu Daily Feed • Completed in %s", summary.TotalDuration.Round(time.Second).String()),
+			Text: fmt.Sprintf("JoblessYu Daily Monitor • %s", time.Now().Format("02/01/2006 15:04:05")),
 		},
 	}
 }

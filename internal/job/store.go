@@ -491,3 +491,40 @@ func (r *JobRepository) GetScrapeStats(ctx context.Context) (int, time.Time, err
 	}
 	return totalActive, lastScrape, err
 }
+
+type PipelineStats struct {
+	TotalActiveJobs   int
+	LastScrapeTime    time.Time
+	Recent24hAdded    int
+	Recent24hEnriched int
+	RecentJobspyCount int
+	RecentCollyCount  int
+}
+
+// GetPipelineSummaryStats queries Neon DB for recent 24-hour scrape metrics to populate static Card 2 on boot.
+func (r *JobRepository) GetPipelineSummaryStats(ctx context.Context) (PipelineStats, error) {
+	var stats PipelineStats
+	var maxTime sql.NullTime
+
+	err := r.pool.QueryRow(ctx, `
+		SELECT 
+			COUNT(*),
+			MAX(fetched_at),
+			COUNT(*) FILTER (WHERE fetched_at >= NOW() - INTERVAL '24 hours'),
+			COUNT(*) FILTER (WHERE ai_processed_at >= NOW() - INTERVAL '24 hours'),
+			COUNT(*) FILTER (WHERE site IN ('indeed', 'linkedin') AND fetched_at >= NOW() - INTERVAL '24 hours'),
+			COUNT(*) FILTER (WHERE site = 'itviec' AND fetched_at >= NOW() - INTERVAL '24 hours')
+		FROM jobs
+	`).Scan(
+		&stats.TotalActiveJobs,
+		&maxTime,
+		&stats.Recent24hAdded,
+		&stats.Recent24hEnriched,
+		&stats.RecentJobspyCount,
+		&stats.RecentCollyCount,
+	)
+	if err == nil && maxTime.Valid {
+		stats.LastScrapeTime = maxTime.Time
+	}
+	return stats, err
+}

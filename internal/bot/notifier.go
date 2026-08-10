@@ -24,11 +24,13 @@ type StatusDetails struct {
 	Version        string
 }
 
-// CalculateNextScrapeTime computes the next occurrence of daily 05:00 AM ICT (22:00 UTC) from now.
+var locICT = time.FixedZone("ICT", 7*3600)
+
+// CalculateNextScrapeTime computes the next occurrence of daily 05:00 AM ICT from now.
 func CalculateNextScrapeTime(now time.Time) time.Time {
-	utcNow := now.UTC()
-	next := time.Date(utcNow.Year(), utcNow.Month(), utcNow.Day(), 22, 0, 0, 0, time.UTC)
-	if !utcNow.Before(next) {
+	ictNow := now.In(locICT)
+	next := time.Date(ictNow.Year(), ictNow.Month(), ictNow.Day(), 5, 0, 0, 0, locICT)
+	if !ictNow.Before(next) {
 		next = next.AddDate(0, 0, 1)
 	}
 	return next
@@ -49,10 +51,11 @@ type DailyScrapeSummary struct {
 
 // Notifier manages Discord lifecycle status cards, public announcements, and operational webhooks.
 type Notifier struct {
-	session     *discordgo.Session
-	cfg         *config.Config
-	statusMsgID string
-	mu          sync.Mutex
+	session           *discordgo.Session
+	cfg               *config.Config
+	statusMsgID       string
+	dailySummaryMsgID string
+	mu                sync.Mutex
 }
 
 func NewNotifier(session *discordgo.Session, cfg *config.Config) *Notifier {
@@ -200,26 +203,107 @@ func (n *Notifier) UpdateStatusCard(online bool, details StatusDetails) error {
 	return nil
 }
 
-// PostDailyScrapeAnnouncement posts the 5:00 AM daily job update summary to DISCORD_ANNOUNCEMENT_CHANNEL_ID (or default server channel).
+// PostDailyScrapeAnnouncement posts or edits the static 5:00 AM daily job update summary card.
 func (n *Notifier) PostDailyScrapeAnnouncement(summary DailyScrapeSummary) error {
+	return n.UpdateDailySummaryCard(summary)
+}
+
+// UpdateDailySummaryCard creates or edits the static daily pipeline summary card in DISCORD_ANNOUNCEMENT_CHANNEL_ID (or status channel).
+func (n *Notifier) UpdateDailySummaryCard(summary DailyScrapeSummary) error {
 	if n.session == nil {
 		return fmt.Errorf("discord session is nil")
 	}
 
 	channelID, err := n.resolveChannelID(n.cfg.DiscordAnnouncementChannelID)
 	if err != nil {
-		return fmt.Errorf("announcement channel resolution failed: %w", err)
+		channelID, err = n.resolveChannelID(n.cfg.DiscordStatusChannelID)
+		if err != nil {
+			return fmt.Errorf("summary channel resolution failed: %w", err)
+		}
 	}
 
-	embed := BuildDailyAnnouncementEmbed(summary)
+	n.mu.Lock()
+	defer n.mu.Unlock()
 
-	_, sendErr := n.session.ChannelMessageSendEmbed(channelID, embed)
+	embed := BuildDailyAnnouncementEmbed(summary)
+	botUserID := ""
+	if n.session.State != nil && n.session.State.User != nil {
+		botUserID = n.session.State.User.ID
+	}
+
+	var existingSummaryID string
+
+	// 1. Check known message ID if already tracked in memory
+	if n.dailySummaryMsgID != "" {
+		existingSummaryID = n.dailySummaryMsgID
+	}
+
+	// 2. Search recent channel messages if not tracked in memory
+	if existingSummaryID == "" {
+		msgs, fetchErr := n.session.ChannelMessages(channelID, 50, "", "", "")
+		if fetchErr == nil {
+			for _, msg := range msgs {
+				if botUserID != "" && msg.Author != nil && msg.Author.ID != botUserID {
+					continue
+				}
+				if len(msg.Embeds) > 0 {
+					emb := msg.Embeds[0]
+					if strings.Contains(emb.Title, "DAILY PIPELINE SUMMARY") || strings.Contains(emb.Title, "Daily IT Job List Updated") ||
+						(emb.Footer != nil && strings.Contains(emb.Footer.Text, "JoblessYu Daily Monitor")) {
+						existingSummaryID = msg.ID
+						break
+					}
+				}
+			}
+		}
+	}
+
+	// 3. Search pinned messages if recent search didn't find it
+	if existingSummaryID == "" {
+		pinned, pinErr := n.session.ChannelMessagesPinned(channelID)
+		if pinErr == nil && len(pinned) > 0 {
+			for _, msg := range pinned {
+				if botUserID != "" && msg.Author != nil && msg.Author.ID != botUserID {
+					continue
+				}
+				if len(msg.Embeds) > 0 && (strings.Contains(msg.Embeds[0].Title, "DAILY PIPELINE SUMMARY") || strings.Contains(msg.Embeds[0].Title, "Daily IT Job List Updated")) {
+					existingSummaryID = msg.ID
+					break
+				}
+			}
+		}
+	}
+
+	// 4. Ensure correct ordering: Card 2 must be newer than Card 1 (positioned below Status Card).
+	// If existingSummaryID is older than n.statusMsgID, delete old Card 2 and re-send at bottom!
+	if existingSummaryID != "" && n.statusMsgID != "" && existingSummaryID < n.statusMsgID {
+		slog.Info("Daily summary card is older than status card, re-sending below status card", "old_summary_id", existingSummaryID, "status_id", n.statusMsgID)
+		_ = n.session.ChannelMessageDelete(channelID, existingSummaryID)
+		existingSummaryID = ""
+		n.dailySummaryMsgID = ""
+	}
+
+	// 5. Edit existing or send new summary card
+	if existingSummaryID != "" {
+		_, editErr := n.session.ChannelMessageEditEmbed(channelID, existingSummaryID, embed)
+		if editErr == nil {
+			n.dailySummaryMsgID = existingSummaryID
+			slog.Info("Edited static daily summary card", "channel_id", channelID, "message_id", existingSummaryID)
+			return nil
+		}
+	}
+
+	// Create new static daily summary message at the bottom of the channel
+	msg, sendErr := n.session.ChannelMessageSendEmbed(channelID, embed)
 	if sendErr != nil {
-		slog.Warn("Failed to post daily scrape announcement", "channel_id", channelID, "err", sendErr)
+		slog.Warn("Failed to send daily summary embed", "channel_id", channelID, "err", sendErr)
 		return sendErr
 	}
 
-	slog.Info("Posted daily scrape announcement", "channel_id", channelID, "inserted", summary.InsertedCount, "merged", summary.MergedCount)
+	n.dailySummaryMsgID = msg.ID
+	_ = n.session.ChannelMessagePin(channelID, msg.ID)
+
+	slog.Info("Created static daily summary card at bottom of channel", "channel_id", channelID, "message_id", msg.ID)
 	return nil
 }
 
