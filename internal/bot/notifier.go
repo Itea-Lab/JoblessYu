@@ -248,8 +248,8 @@ func (n *Notifier) UpdateDailySummaryCard(summary DailyScrapeSummary) error {
 				}
 				if len(msg.Embeds) > 0 {
 					emb := msg.Embeds[0]
-					if strings.Contains(emb.Title, "DAILY PIPELINE SUMMARY") || strings.Contains(emb.Title, "Daily IT Job List Updated") ||
-						(emb.Footer != nil && strings.Contains(emb.Footer.Text, "JoblessYu Daily Monitor")) {
+					if strings.Contains(emb.Title, "SCRAPE SUMMARY") || strings.Contains(emb.Title, "DAILY PIPELINE SUMMARY") || strings.Contains(emb.Title, "Daily IT Job List Updated") ||
+						(emb.Footer != nil && (strings.Contains(emb.Footer.Text, "JoblessYu Scrape Monitor") || strings.Contains(emb.Footer.Text, "JoblessYu Daily Monitor"))) {
 						existingSummaryID = msg.ID
 						break
 					}
@@ -266,7 +266,7 @@ func (n *Notifier) UpdateDailySummaryCard(summary DailyScrapeSummary) error {
 				if botUserID != "" && msg.Author != nil && msg.Author.ID != botUserID {
 					continue
 				}
-				if len(msg.Embeds) > 0 && (strings.Contains(msg.Embeds[0].Title, "DAILY PIPELINE SUMMARY") || strings.Contains(msg.Embeds[0].Title, "Daily IT Job List Updated")) {
+				if len(msg.Embeds) > 0 && (strings.Contains(msg.Embeds[0].Title, "SCRAPE SUMMARY") || strings.Contains(msg.Embeds[0].Title, "DAILY PIPELINE SUMMARY") || strings.Contains(msg.Embeds[0].Title, "Daily IT Job List Updated")) {
 					existingSummaryID = msg.ID
 					break
 				}

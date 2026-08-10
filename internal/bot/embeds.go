@@ -421,8 +421,8 @@ func BuildDailyAnnouncementEmbed(summary DailyScrapeSummary) *discordgo.MessageE
 	scrapedTotal := summary.JobspyCount + summary.CollyCount
 
 	return &discordgo.MessageEmbed{
-		Title:       "🌅 DAILY PIPELINE SUMMARY",
-		Description: "Daily IT job listings scraped from Indeed, LinkedIn, and ITViec with AI enrichment.",
+		Title:       "🌅 SCRAPE SUMMARY",
+		Description: "IT job listings scraped from Indeed, LinkedIn, and ITViec with AI enrichment.",
 		Color:       0xF59E0B, // Gold / Amber
 		Fields: []*discordgo.MessageEmbedField{
 			{
@@ -443,7 +443,7 @@ func BuildDailyAnnouncementEmbed(summary DailyScrapeSummary) *discordgo.MessageE
 			},
 		},
 		Footer: &discordgo.MessageEmbedFooter{
-			Text: fmt.Sprintf("JoblessYu Daily Monitor • %s", time.Now().Format("02/01/2006 15:04:05")),
+			Text: fmt.Sprintf("JoblessYu Scrape Monitor • %s", time.Now().Format("02/01/2006 15:04:05")),
 		},
 	}
 }

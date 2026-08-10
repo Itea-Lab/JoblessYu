@@ -290,19 +290,6 @@ func (m *ScraperManager) runScrapeAndEnrich(ctx context.Context) {
 		if err := m.announcer.UpdateStatusCard(true, statusDetails); err != nil {
 			slog.Warn("Failed to update status card after pipeline completion", "err", err)
 		}
-
-		m.announcer.PostDevLogWebhook(
-			"🌅 Daily Scrape & AI Pipeline Complete",
-			fmt.Sprintf("Daily 5:00 AM ICT pipeline execution finished in %s.", totalDuration.String()),
-			0x10B981,
-			map[string]string{
-				"JobSpy (Indeed/LinkedIn)": fmt.Sprintf("%d jobs (%s)", jobspyCount, jobspyStatus),
-				"Colly (ITViec)":           fmt.Sprintf("%d jobs (%s)", len(itviecJobs), collyStatus),
-				"Neon DB Upsert":           fmt.Sprintf("%d inserted, %d merged", stats.Inserted, stats.Merged),
-				"Groq AI Batch":            fmt.Sprintf("%d processed (%s)", unenrichedCount, enrichStatus),
-				"Total Active Pool":        fmt.Sprintf("%d active jobs", totalActive),
-			},
-		)
 	}
 }
 
