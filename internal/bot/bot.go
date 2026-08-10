@@ -201,34 +201,59 @@ func (b *Bot) Start() error {
 			}
 		}()
 
-		// Real-time Postgres event listener: automatically updates Card 1 & Card 2 whenever jobs table is mutated (INSERT/UPDATE/DELETE)
+		// Hybrid Real-time DB Sync: combines Postgres LISTEN triggers with a 30s count change monitor
 		if b.jobService != nil {
-			if statsService, ok := b.jobService.(*job.JobService); ok {
-				go func() {
+			go func() {
+				lastKnownCount := -1
+				ticker := time.NewTicker(30 * time.Second)
+				defer ticker.Stop()
+
+				updateCardsIfChanged := func() {
+					rCtx, rCancel := context.WithTimeout(context.Background(), 10*time.Second)
+					defer rCancel()
+					details := b.fetchStatusDetails(rCtx)
+					if details.ActiveJobs != lastKnownCount {
+						lastKnownCount = details.ActiveJobs
+						_ = b.notifier.UpdateStatusCard(true, details)
+						summary := b.fetchDailySummaryDetails(rCtx)
+						if summary.TotalActiveJobs == 0 {
+							summary.TotalActiveJobs = details.ActiveJobs
+						}
+						_ = b.notifier.UpdateDailySummaryCard(summary)
+					}
+				}
+
+				// Initial check to prime lastKnownCount
+				updateCardsIfChanged()
+
+				// 1. Postgres LISTEN event listener (push notifications)
+				if statsService, ok := b.jobService.(*job.JobService); ok {
 					ctx, cancel := context.WithCancel(context.Background())
 					go func() {
 						<-b.stopJanitor
 						cancel()
 					}()
 					var debounceTimer *time.Timer
-					statsService.ListenForJobChanges(ctx, func() {
+					go statsService.ListenForJobChanges(ctx, func() {
 						if debounceTimer != nil {
 							debounceTimer.Stop()
 						}
 						debounceTimer = time.AfterFunc(500*time.Millisecond, func() {
-							rCtx, rCancel := context.WithTimeout(context.Background(), 10*time.Second)
-							defer rCancel()
-							details := b.fetchStatusDetails(rCtx)
-							_ = b.notifier.UpdateStatusCard(true, details)
-							summary := b.fetchDailySummaryDetails(rCtx)
-							if summary.TotalActiveJobs == 0 {
-								summary.TotalActiveJobs = details.ActiveJobs
-							}
-							_ = b.notifier.UpdateDailySummaryCard(summary)
+							updateCardsIfChanged()
 						})
 					})
-				}()
-			}
+				}
+
+				// 2. 30s fail-safe polling ticker (handles Neon PgBouncer transaction pooler drops)
+				for {
+					select {
+					case <-ticker.C:
+						updateCardsIfChanged()
+					case <-b.stopJanitor:
+						return
+					}
+				}
+			}()
 		}
 	}
 
