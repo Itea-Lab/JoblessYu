@@ -131,19 +131,24 @@ docker run -d --env-file .env -p 8080:8080 joblessyu
 
 ### 3. Interactive Ephemeral Job Search (`/jobs`)
 - Pure DB query — 100% ephemeral (`"Only you can see this"`).
-- Multi-keyword filtering by Level, Location, Position, and Job Type.
+- Multi-select checkbox filtering by Level, Location, Position, and Job Type (compact fixed-height layout).
 - Ephemeral pagination with `◀️ Prev`, `Page X/Y`, `Next ▶️`, and `🔢 Go to Page` modal jump.
 
 ## Make Commands
 
 ```bash
-make bot       # Start Discord bot + cron scheduler + real-time DB listener
-make scrape    # Full pipeline: jobspy (Indeed+LinkedIn) + Colly (ITViec) + AI enrichment
-make enrich    # AI enrichment only (processes un-enriched DB jobs)
-make test      # Run Go tests with race detector + coverage
-make lint      # Run Go vet static analysis
-make migrate   # Apply SQL migrations to Neon DB
-make clean     # Remove build artifacts
+make bot          # Start Discord bot + cron scheduler + real-time DB listener
+make dev          # Alias for `make bot`
+make scrape       # Full pipeline: jobspy (Indeed+LinkedIn) + Colly (ITViec) + AI enrichment
+make enrich       # AI enrichment only (processes un-enriched DB jobs)
+make test         # Run Go tests with race detector + coverage
+make test-notify  # Test Discord notifications & UI cards (Online/Offline status, Scrape Summary)
+make eval-ai      # Run AI Evaluation & Hallucination Benchmark Suite
+make lint         # Run Go vet + Python ruff static analysis
+make lint-go      # Run Go vet static analysis
+make lint-python  # Run ruff check on Python scraper scripts
+make migrate      # Apply SQL migrations to Neon DB
+make clean        # Remove build artifacts
 ```
 
 ## Tech Stack
