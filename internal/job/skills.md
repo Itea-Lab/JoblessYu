@@ -18,21 +18,43 @@ Vietnamese job titles contain distinct seniority signals compared to English. Ma
 | Level | English Keywords | Vietnamese Keywords & Phrases |
 |---|---|---|
 | **Intern** | Intern, trainee, 0 years | Thực tập sinh, TTS, học việc |
-| **Fresher** | Fresher, entry-level, fresh graduate, 0-1 years | Fresher, mới ra trường, sinh viên mới tốt nghiệp |
-| **Junior** | Junior, 1-3 years | Junior, lập trình viên, kỹ sư |
-| **Middle** | Mid, middle, 2-4 years | Mid, chuyên viên, lập trình viên mid-level |
-| **Senior** | Senior, principal, staff, 5+ years | Senior, chuyên viên cao cấp |
-| **Lead** | Lead, manager, head, director, VP | Lead, trưởng nhóm, trưởng phòng, quản lý, giám đốc |
+| **Fresher** | Fresher, entry-level, fresh graduate, 1-2 years | Fresher, mới ra trường, sinh viên mới tốt nghiệp |
+| **Junior** | Junior, 1-3 years | Chuyên viên (unqualified) |
+| **Middle** | Middle, mid-level, 3 years (if explicitly "mid") | Middle, Mid-level, Nhân viên (context-dependent) |
+| **Senior** | Senior, lead, principal, staff, 5+ years | Senior, trưởng phòng, lead |
 | **Unknown** | No clear seniority signal | Không rõ |
 
+**Note on management titles:** "Quản lý" (manager) and "giám đốc" (director) are organizational roles, not IT technical-seniority signals. If the title contains these AND expertise is classified as "management", set level to "Senior" automatically. If expertise is NOT "management" (e.g. a technical role that happens to report to a director), do not use these words as seniority signals — fall back to other rules.
+
+### Classification Priority Order
+
+When signals conflict, resolve in this order (highest priority first):
+1. Explicit seniority word in the TITLE (e.g. "Senior", "Lead", "Fresher") overrides everything else.
+2. Explicit numeric years-of-experience phrase in the description.
+3. Generic seniority-adjacent words in the title (e.g. "Chuyên viên").
+4. Default to "Unknown" if no signal is found — do NOT guess from job duties alone.
+
+Example: title = "Senior Backend Developer", description = "1 year experience required" → classify as Senior (title signal outranks experience-years signal). Flag such conflicts by appending " (conflict: title vs. experience)" to the summary field when this happens.
+
 ### Seniority Edge Case Rules
-- **Chuyên viên**: In Vietnamese JDs, "Chuyên viên" means "Specialist" (a mid-level role). Classify as `Junior` or `Middle` unless prefixed with "Senior".
+- **Chuyên viên**: In Vietnamese JDs, "Chuyên viên" means "Specialist" (a mid-level role). Classify as `Junior` unless prefixed with "Senior".
 - **Mentors / Managers**: Text like "reports to Senior Developer" or "guided by Tech Lead" describes the supervisor, NOT the hired role. Classify based on the hired position.
 - **Location Words**: "International client" or "internal team" contain "intern" as a substring but are location/team words. Do NOT classify as `Intern`.
 - **Experience Phrases**:
   - "Không yêu cầu kinh nghiệm" (No experience required) → `Fresher` or `Intern`.
   - "Ưu tiên có kinh nghiệm" (Experience preferred) → `Junior` (not Fresher).
   - "Dưới 35 tuổi" → Age limit parameter, ignore for level classification.
+
+### Numeric Experience Range Table
+
+| Years Stated | Level |
+|---|---|
+| 0 / "no experience" | Intern or Fresher (see existing rule) |
+| 1–2 years | Fresher |
+| 2.5–4 years | Junior |
+| "trên 5 năm" / "5+ years" / "từ 5 năm trở lên" | Senior |
+| "từ X năm trở lên" (X ≥ 5) | Senior |
+| "từ X năm trở lên" (X < 5) | Junior |
 
 ## Expertise Categories (Select exactly one)
 
