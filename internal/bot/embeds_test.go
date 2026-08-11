@@ -77,3 +77,29 @@ func TestBuildDailyAnnouncementEmbed(t *testing.T) {
 		t.Fatalf("expected 5 fields, got %d", len(embed.Fields))
 	}
 }
+
+func TestBuildJobSweeperV2Components_MultiSelect(t *testing.T) {
+	state := criteriaState{
+		Positions: []string{"web_dev", "devops_sre"},
+		Levels:    []string{"junior", "senior"},
+		Locations: []string{"hcm", "remote"},
+		JobTypes:  []string{"full_time"},
+	}
+
+	comps := buildJobSweeperV2Components(state, "")
+	if len(comps) != 1 {
+		t.Fatalf("expected 1 container component, got %d", len(comps))
+	}
+}
+
+func TestLabelFromSlice(t *testing.T) {
+	if got := positionLabelFromSlice([]string{"web_dev", "devops_sre"}); got != "Positions: Web Dev, DevOps & SRE" {
+		t.Errorf("unexpected position label: %s", got)
+	}
+	if got := levelLabelFromSlice([]string{"junior", "senior"}); got != "Levels: Junior, Senior" {
+		t.Errorf("unexpected level label: %s", got)
+	}
+	if got := locationLabelFromSlice([]string{"hcm", "danang", "remote"}); got != "Locations: 3 selected" {
+		t.Errorf("unexpected location label: %s", got)
+	}
+}

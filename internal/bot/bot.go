@@ -24,10 +24,10 @@ type cachedJobs struct {
 }
 
 type criteriaState struct {
-	PositionValue string
-	LevelValue    string
-	LocationValue string
-	JobTypeValue  string
+	Positions []string
+	Levels    []string
+	Locations []string
+	JobTypes  []string
 }
 
 type cachedCriteria struct {

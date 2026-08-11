@@ -13,24 +13,24 @@ import (
 
 func defaultCriteriaState() criteriaState {
 	return criteriaState{
-		PositionValue: "all",
-		LevelValue:    "all",
-		LocationValue: "all",
-		JobTypeValue:  "all",
+		Positions: []string{"all"},
+		Levels:    []string{"all"},
+		Locations: []string{"all"},
+		JobTypes:  []string{"all"},
 	}
 }
 
 func buildJobSweeperEmbed(state criteriaState, notice string) *discordgo.MessageEmbed {
-	positionLabel := positionLabelFromValue(state.PositionValue)
-	levelLabel := levelLabelFromValue(state.LevelValue)
-	locationLabel := locationLabelFromValue(state.LocationValue)
-	jobTypeLabel := jobTypeLabelFromValue(state.JobTypeValue)
+	positionLabel := positionLabelFromSlice(state.Positions)
+	levelLabel := levelLabelFromSlice(state.Levels)
+	locationLabel := locationLabelFromSlice(state.Locations)
+	jobTypeLabel := jobTypeLabelFromSlice(state.JobTypes)
 
 	desc := "### Filter Configuration\n" +
-		fmt.Sprintf("> Position: `%s`\n", positionLabel) +
-		fmt.Sprintf("> Experience: `%s`\n", levelLabel) +
-		fmt.Sprintf("> Location: `%s`\n", locationLabel) +
-		fmt.Sprintf("> Job Type: `%s`", jobTypeLabel)
+		fmt.Sprintf("> %s\n", positionLabel) +
+		fmt.Sprintf("> %s\n", levelLabel) +
+		fmt.Sprintf("> %s\n", locationLabel) +
+		fmt.Sprintf("> %s", jobTypeLabel)
 
 	if notice != "" {
 		desc += "\n\n*" + notice + "*"
@@ -43,14 +43,35 @@ func buildJobSweeperEmbed(state criteriaState, notice string) *discordgo.Message
 	}
 }
 
-func buildJobSweeperV2Components(state criteriaState, notice string) []discordgo.MessageComponent {
-	positionLabel := positionLabelFromValue(state.PositionValue)
-	levelLabel := levelLabelFromValue(state.LevelValue)
-	locationLabel := locationLabelFromValue(state.LocationValue)
-	jobTypeLabel := jobTypeLabelFromValue(state.JobTypeValue)
+func isValueSelected(values []string, target string) bool {
+	if len(values) == 0 {
+		return target == "all"
+	}
+	clean := filterAllValues(values)
+	if len(clean) == 0 {
+		return target == "all"
+	}
+	for _, v := range clean {
+		if v == target {
+			return true
+		}
+	}
+	return false
+}
 
+func filterAllValues(vals []string) []string {
+	var clean []string
+	for _, v := range vals {
+		if v != "" && v != "all" {
+			clean = append(clean, v)
+		}
+	}
+	return clean
+}
+
+func buildJobSweeperV2Components(state criteriaState, notice string) []discordgo.MessageComponent {
 	header := "## Job Sweeper\n" +
-		"Select filters below to find job listings."
+		"Select filters below to find job listings (check multiple choices per dropdown)."
 
 	if notice != "" {
 		header += "\n\n*" + notice + "*"
@@ -58,94 +79,127 @@ func buildJobSweeperV2Components(state criteriaState, notice string) []discordgo
 
 	positionOptions := []discordgo.SelectMenuOption{
 		{Label: "All Positions", Value: "all"},
-		{Label: "IT Executive & Management", Value: "management"},
-		{Label: "Web Application Development", Value: "web_dev"},
-		{Label: "Mobile Application Development", Value: "mobile_dev"},
-		{Label: "Core / Enterprise Systems", Value: "enterprise"},
-		{Label: "Low-Code / No-Code Dev", Value: "lowcode_nocode"},
-		{Label: "Technical Architecture", Value: "architecture"},
-		{Label: "Blockchain Development", Value: "blockchain"},
-		{Label: "Game Development", Value: "game_dev"},
-		{Label: "Software Testing & QA", Value: "testing_qa"},
-		{Label: "Data Analytics & BI", Value: "data_analytics"},
-		{Label: "Data Engineering", Value: "data_engineering"},
-		{Label: "Data Science & AI / ML", Value: "data_ai"},
-		{Label: "Data Management & Governance", Value: "data_governance"},
-		{Label: "Cloud Computing", Value: "cloud"},
-		{Label: "Systems & Network Admin", Value: "systems_network"},
-		{Label: "DevOps & Site Reliability (SRE)", Value: "devops_sre"},
-		{Label: "IT Support & Helpdesk", Value: "support_helpdesk"},
-		{Label: "Cybersecurity", Value: "cybersecurity"},
-		{Label: "IT Compliance & Risk", Value: "compliance_risk"},
-		{Label: "Embedded, IoT & Robotics", Value: "embedded_iot"},
-		{Label: "Product Management", Value: "product_mgmt"},
-		{Label: "Project Management & Tech Comm", Value: "project_mgmt"},
-		{Label: "Design & User Experience", Value: "design_ux"},
-		{Label: "IT Consulting & Sales", Value: "consulting_sales"},
+		{Label: "IT Management", Value: "management", Description: "PM, Product Manager, CTO, CIO, Director, VP"},
+		{Label: "Web Dev", Value: "web_dev", Description: "Backend, Frontend, Fullstack, Golang, Node, React, Vue, PHP"},
+		{Label: "Mobile Dev", Value: "mobile_dev", Description: "iOS, Android, Flutter, React Native, Swift, Kotlin"},
+		{Label: "Enterprise Systems", Value: "enterprise", Description: "ERP, CRM, SAP, Oracle, Banking, Salesforce"},
+		{Label: "Low-Code / No-Code", Value: "lowcode_nocode", Description: "RPA, UiPath, Power Apps, Mendix, OutSystems"},
+		{Label: "Architecture", Value: "architecture", Description: "Solutions Architect, Enterprise Architect, Tech Architect"},
+		{Label: "Blockchain", Value: "blockchain", Description: "Web3, Smart Contracts, Solidity, Crypto, Ethereum, Rust"},
+		{Label: "Game Dev", Value: "game_dev", Description: "Unity, Unreal, Godot, Game Developer, VR/AR"},
+		{Label: "Testing & QA", Value: "testing_qa", Description: "QA, Tester, Test Automation, SDET, Cypress, Selenium"},
+		{Label: "Data Analytics", Value: "data_analytics", Description: "Data Analyst, BI Analyst, Tableau, Power BI, Looker"},
+		{Label: "Data Engineering", Value: "data_engineering", Description: "Big Data, DataOps, MLOps, ETL, Spark, Airflow"},
+		{Label: "Data Science & AI", Value: "data_ai", Description: "Machine Learning, AI Engineer, Data Scientist, LLM, GenAI"},
+		{Label: "Data Governance", Value: "data_governance", Description: "Data Architect, DBA, Database Administrator"},
+		{Label: "Cloud Computing", Value: "cloud", Description: "AWS, Azure, GCP, Cloud Engineer, Cloud Architect"},
+		{Label: "Systems & Network", Value: "systems_network", Description: "Sysadmin, Infrastructure, Linux, Network Engineer"},
+		{Label: "DevOps & SRE", Value: "devops_sre", Description: "DevOps, Kubernetes, Terraform, SRE, CI/CD, Docker"},
+		{Label: "IT Support", Value: "support_helpdesk", Description: "Helpdesk, Technical Support, IT Administrator"},
+		{Label: "Cybersecurity", Value: "cybersecurity", Description: "Security Engineer, Penetration Testing, SOC Analyst"},
+		{Label: "IT Compliance", Value: "compliance_risk", Description: "Compliance Officer, GRC, IT Auditor, Risk Manager"},
+		{Label: "Embedded & IoT", Value: "embedded_iot", Description: "Embedded, Firmware, IoT, Robotics, RTOS, C/C++"},
+		{Label: "Product Mgmt", Value: "product_mgmt", Description: "Product Manager, Product Owner, Product Analyst"},
+		{Label: "Project Mgmt", Value: "project_mgmt", Description: "Scrum Master, Agile Coach, BrSE, BA, Technical Writer"},
+		{Label: "Design & UX", Value: "design_ux", Description: "UI/UX Designer, Product Designer, Figma"},
+		{Label: "IT Consulting", Value: "consulting_sales", Description: "IT Consultant, Pre-Sales, Technical Account Manager"},
 	}
 	for i := range positionOptions {
-		if positionOptions[i].Value == state.PositionValue {
+		if isValueSelected(state.Positions, positionOptions[i].Value) {
 			positionOptions[i].Default = true
 		}
 	}
 
 	levelOptions := []discordgo.SelectMenuOption{
 		{Label: "All Levels", Value: "all"},
-		{Label: "Intern", Value: "intern", Description: "Internship roles"},
+		{Label: "Intern", Value: "intern", Description: "Internship roles & thực tập sinh"},
 		{Label: "Fresher", Value: "fresher", Description: "Fresh graduates & 0-1 years experience"},
 		{Label: "Junior", Value: "junior", Description: "1-3 years of experience"},
-		{Label: "Senior", Value: "senior", Description: "5+ years & leadership roles"},
+		{Label: "Middle", Value: "middle", Description: "Mid-level ~3 years experience"},
+		{Label: "Senior", Value: "senior", Description: "5+ years experience"},
+		{Label: "Lead", Value: "lead", Description: "Lead, manager & director roles"},
 	}
 	for i := range levelOptions {
-		if levelOptions[i].Value == state.LevelValue {
+		if isValueSelected(state.Levels, levelOptions[i].Value) {
 			levelOptions[i].Default = true
 		}
 	}
 
 	locationOptions := []discordgo.SelectMenuOption{
 		{Label: "All Locations", Value: "all"},
-		{Label: "Ho Chi Minh", Value: "hcm"},
-		{Label: "Ha Noi", Value: "hanoi"},
+		{Label: "Ho Chi Minh", Value: "hcm", Description: "HCM / Saigon"},
+		{Label: "Ha Noi", Value: "hanoi", Description: "Ha Noi / HN"},
+		{Label: "Da Nang", Value: "danang", Description: "Da Nang"},
+		{Label: "Remote", Value: "remote", Description: "Remote / WFH"},
 	}
 	for i := range locationOptions {
-		if locationOptions[i].Value == state.LocationValue {
+		if isValueSelected(state.Locations, locationOptions[i].Value) {
 			locationOptions[i].Default = true
 		}
 	}
 
 	typeOptions := []discordgo.SelectMenuOption{
 		{Label: "All Job Types", Value: "all"},
-		{Label: "Full-time", Value: "full_time"},
-		{Label: "Part-time", Value: "part_time"},
-		{Label: "Contract", Value: "contract"},
+		{Label: "Full-time", Value: "full_time", Description: "Full-time employment"},
+		{Label: "Part-time", Value: "part_time", Description: "Part-time employment"},
+		{Label: "Contract", Value: "contract", Description: "Contract / Freelance"},
 	}
 	for i := range typeOptions {
-		if typeOptions[i].Value == state.JobTypeValue {
+		if isValueSelected(state.JobTypes, typeOptions[i].Value) {
 			typeOptions[i].Default = true
 		}
 	}
 
+	zero := 0
+	maxPositions := 5
+	if maxPositions > len(positionOptions) {
+		maxPositions = len(positionOptions)
+	}
+
+	maxLevels := 5
+	if maxLevels > len(levelOptions) {
+		maxLevels = len(levelOptions)
+	}
+
+	maxLocations := 4
+	if maxLocations > len(locationOptions) {
+		maxLocations = len(locationOptions)
+	}
+
+	maxTypes := 3
+	if maxTypes > len(typeOptions) {
+		maxTypes = len(typeOptions)
+	}
+
 	positionSelect := discordgo.SelectMenu{
 		CustomID:    "select_position",
-		Placeholder: "Position: " + positionLabel,
+		Placeholder: positionLabelFromSlice(state.Positions),
+		MinValues:   &zero,
+		MaxValues:   maxPositions,
 		Options:     positionOptions,
 	}
 
 	levelSelect := discordgo.SelectMenu{
 		CustomID:    "select_level",
-		Placeholder: "Level: " + levelLabel,
+		Placeholder: levelLabelFromSlice(state.Levels),
+		MinValues:   &zero,
+		MaxValues:   maxLevels,
 		Options:     levelOptions,
 	}
 
 	locationSelect := discordgo.SelectMenu{
 		CustomID:    "select_location",
-		Placeholder: "Location: " + locationLabel,
+		Placeholder: locationLabelFromSlice(state.Locations),
+		MinValues:   &zero,
+		MaxValues:   maxLocations,
 		Options:     locationOptions,
 	}
 
 	typeSelect := discordgo.SelectMenu{
 		CustomID:    "select_type",
-		Placeholder: "Job Type: " + jobTypeLabel,
+		Placeholder: jobTypeLabelFromSlice(state.JobTypes),
+		MinValues:   &zero,
+		MaxValues:   maxTypes,
 		Options:     typeOptions,
 	}
 
@@ -175,56 +229,112 @@ func buildJobSweeperComponents() []discordgo.MessageComponent {
 	return buildJobSweeperV2Components(defaultCriteriaState(), "")
 }
 
+func positionLabelFromSlice(vals []string) string {
+	clean := filterAllValues(vals)
+	if len(clean) == 0 {
+		return "Position: All Positions"
+	}
+	if len(clean) == 1 {
+		return "Position: " + positionLabelFromValue(clean[0])
+	}
+	if len(clean) == 2 {
+		return fmt.Sprintf("Positions: %s, %s", positionLabelFromValue(clean[0]), positionLabelFromValue(clean[1]))
+	}
+	return fmt.Sprintf("Positions: %d selected", len(clean))
+}
+
+func levelLabelFromSlice(vals []string) string {
+	clean := filterAllValues(vals)
+	if len(clean) == 0 {
+		return "Level: All Levels"
+	}
+	if len(clean) == 1 {
+		return "Level: " + levelLabelFromValue(clean[0])
+	}
+	if len(clean) == 2 {
+		return fmt.Sprintf("Levels: %s, %s", levelLabelFromValue(clean[0]), levelLabelFromValue(clean[1]))
+	}
+	return fmt.Sprintf("Levels: %d selected", len(clean))
+}
+
+func locationLabelFromSlice(vals []string) string {
+	clean := filterAllValues(vals)
+	if len(clean) == 0 {
+		return "Location: All Locations"
+	}
+	if len(clean) == 1 {
+		return "Location: " + locationLabelFromValue(clean[0])
+	}
+	if len(clean) == 2 {
+		return fmt.Sprintf("Locations: %s, %s", locationLabelFromValue(clean[0]), locationLabelFromValue(clean[1]))
+	}
+	return fmt.Sprintf("Locations: %d selected", len(clean))
+}
+
+func jobTypeLabelFromSlice(vals []string) string {
+	clean := filterAllValues(vals)
+	if len(clean) == 0 {
+		return "Job Type: All Job Types"
+	}
+	if len(clean) == 1 {
+		return "Job Type: " + jobTypeLabelFromValue(clean[0])
+	}
+	if len(clean) == 2 {
+		return fmt.Sprintf("Job Types: %s, %s", jobTypeLabelFromValue(clean[0]), jobTypeLabelFromValue(clean[1]))
+	}
+	return fmt.Sprintf("Job Types: %d selected", len(clean))
+}
+
 func positionLabelFromValue(v string) string {
 	switch v {
 	case "management":
-		return "IT Executive & Management"
+		return "IT Management"
 	case "web_dev":
-		return "Web Application Development"
+		return "Web Dev"
 	case "mobile_dev":
-		return "Mobile Application Development"
+		return "Mobile Dev"
 	case "enterprise":
-		return "Core / Enterprise Systems"
+		return "Enterprise Systems"
 	case "lowcode_nocode":
-		return "Low-Code / No-Code Dev"
+		return "Low-Code/No-Code"
 	case "architecture":
-		return "Technical Architecture"
+		return "Architecture"
 	case "blockchain":
-		return "Blockchain Development"
+		return "Blockchain"
 	case "game_dev":
-		return "Game Development"
+		return "Game Dev"
 	case "testing_qa":
-		return "Software Testing & QA"
+		return "Testing & QA"
 	case "data_analytics":
-		return "Data Analytics & BI"
+		return "Data Analytics"
 	case "data_engineering":
 		return "Data Engineering"
 	case "data_ai":
-		return "Data Science & AI / ML"
+		return "Data Science & AI"
 	case "data_governance":
-		return "Data Management & Governance"
+		return "Data Governance"
 	case "cloud":
 		return "Cloud Computing"
 	case "systems_network":
-		return "Systems & Network Admin"
+		return "Systems & Network"
 	case "devops_sre":
-		return "DevOps & Site Reliability (SRE)"
+		return "DevOps & SRE"
 	case "support_helpdesk":
-		return "IT Support & Helpdesk"
+		return "IT Support"
 	case "cybersecurity":
 		return "Cybersecurity"
 	case "compliance_risk":
-		return "IT Compliance & Risk"
+		return "IT Compliance"
 	case "embedded_iot":
-		return "Embedded, IoT & Robotics"
+		return "Embedded & IoT"
 	case "product_mgmt":
-		return "Product Management"
+		return "Product Mgmt"
 	case "project_mgmt":
-		return "Project Management & Tech Comm"
+		return "Project Mgmt"
 	case "design_ux":
-		return "Design & User Experience"
+		return "Design & UX"
 	case "consulting_sales":
-		return "IT Consulting & Sales"
+		return "IT Consulting"
 	default:
 		return "All Positions"
 	}
@@ -238,8 +348,12 @@ func levelLabelFromValue(v string) string {
 		return "Fresher"
 	case "junior":
 		return "Junior"
+	case "middle":
+		return "Middle"
 	case "senior":
 		return "Senior"
+	case "lead":
+		return "Lead / Manager"
 	default:
 		return "All Levels"
 	}
@@ -251,6 +365,10 @@ func locationLabelFromValue(v string) string {
 		return "Ha Noi"
 	case "hcm":
 		return "Ho Chi Minh"
+	case "danang":
+		return "Da Nang"
+	case "remote":
+		return "Remote"
 	default:
 		return "All Locations"
 	}
