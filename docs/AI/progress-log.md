@@ -513,6 +513,7 @@ Major architecture overhaul: replaced Firecrawl with hybrid jobspy+Colly scraper
   - Expanded `GetPipelineSummaryStats` ILIKE queries in `store.go` to use multi-keyword recognition matching Vietnamese diacritics (`Hà Nội`, `HN`, `Hồ Chí Minh`, `HCM`, `SG`, `Đà Nẵng`, `Remote`, `Junior / Mid`, `Senior`, `Lead`), ensuring 100% database categorization accuracy.
 
 ### Verification
+- `make eval-ai`: PASS (100% Level, 100% Expertise, 100% Location, 0% Hallucination Rate — 6/6 test cases passed).
 - `go test -v -race -cover ./...`: PASS (100% test pass rate across all packages).
 - `go vet ./...`: PASS (0 warnings / 0 errors).
 - `make scrape`: PASS (Updated Card 1 & Card 2 live in Discord).
