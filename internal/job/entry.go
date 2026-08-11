@@ -49,9 +49,13 @@ type JobMeta struct {
 // for the query type alone.
 type JobQuery struct {
 	Level          string
+	Levels         []string
 	JobType        string
+	JobTypes       []string
 	Location       string
-	Expertise      string // broad category filter: web_dev, cloud_devops, etc.
+	Locations      []string
+	Expertise      string   // broad category filter: web_dev, cloud_devops, etc.
+	Expertises     []string // broad category filters
 	IncludeUnknown bool
 	Limit          int
 	AIEnabled      bool // when true, skip DB-side regex pre-filter so AI sees more rows

@@ -153,48 +153,96 @@ func (r *JobRepository) FetchRawJobs(ctx context.Context, q JobQuery) ([]JobEntr
 	// Only show AI-enriched jobs — un-enriched jobs are hidden from users
 	// until the daily batch enrichment processes them.
 	conditions := []string{"ai_processed_at IS NOT NULL"}
-	if q.Level != "" {
+
+	levels := q.Levels
+	if len(levels) == 0 && q.Level != "" {
+		levels = []string{q.Level}
+	}
+	if len(levels) > 0 {
+		var placeholders []string
+		for _, lvl := range levels {
+			placeholders = append(placeholders, fmt.Sprintf("LOWER($%d)", argIdx))
+			args = append(args, lvl)
+			argIdx++
+		}
+		levelCond := fmt.Sprintf("LOWER(level) IN (%s)", strings.Join(placeholders, ", "))
 		if q.IncludeUnknown {
-			conditions = append(conditions, fmt.Sprintf(`(LOWER(level) = LOWER($%d) OR LOWER(level) = LOWER($%d))`, argIdx, argIdx+1))
-			args = append(args, q.Level, LevelUnknown)
-			argIdx += 2
-		} else {
-			conditions = append(conditions, fmt.Sprintf(`LOWER(level) = LOWER($%d)`, argIdx))
-			args = append(args, q.Level)
+			levelCond = fmt.Sprintf("(%s OR LOWER(level) = LOWER($%d))", levelCond, argIdx)
+			args = append(args, LevelUnknown)
 			argIdx++
 		}
+		conditions = append(conditions, levelCond)
 	}
-	if q.JobType != "" {
-		altTerm := q.JobType
-		switch strings.ToLower(strings.ReplaceAll(q.JobType, "-", "")) {
-		case "fulltime":
-			altTerm = "fulltime"
-		case "parttime":
-			altTerm = "parttime"
-		case "contract":
-			altTerm = "contract"
+
+	jobTypes := q.JobTypes
+	if len(jobTypes) == 0 && q.JobType != "" {
+		jobTypes = []string{q.JobType}
+	}
+	if len(jobTypes) > 0 {
+		var jtConds []string
+		for _, jt := range jobTypes {
+			altTerm := jt
+			switch strings.ToLower(strings.ReplaceAll(jt, "-", "")) {
+			case "fulltime":
+				altTerm = "fulltime"
+			case "parttime":
+				altTerm = "parttime"
+			case "contract":
+				altTerm = "contract"
+			}
+			jtConds = append(jtConds, fmt.Sprintf("(%s ILIKE $%d OR %s ILIKE $%d OR description ILIKE $%d)", jobTypeExpr, argIdx, jobTypeExpr, argIdx+1, argIdx+2))
+			args = append(args, "%"+jt+"%", "%"+altTerm+"%", "%"+jt+"%")
+			argIdx += 3
 		}
-		conditions = append(conditions, fmt.Sprintf(`(%s ILIKE $%d OR %s ILIKE $%d OR description ILIKE $%d)`, jobTypeExpr, argIdx, jobTypeExpr, argIdx+1, argIdx+2))
-		args = append(args, "%"+q.JobType+"%", "%"+altTerm+"%", "%"+q.JobType+"%")
-		argIdx += 3
+		conditions = append(conditions, "("+strings.Join(jtConds, " OR ")+")")
 	}
-	switch q.Location {
-	case "HCM":
-		conditions = append(conditions, fmt.Sprintf(`(location ILIKE $%d OR location ILIKE $%d OR location ILIKE $%d OR location ILIKE $%d)`, argIdx, argIdx+1, argIdx+2, argIdx+3))
-		args = append(args, "%HCM%", "%Ho Chi Minh%", "%Hồ Chí Minh%", "%SG%")
-		argIdx += 4
-	case "HN":
-		conditions = append(conditions, fmt.Sprintf(`(location ILIKE $%d OR location ILIKE $%d OR location ILIKE $%d OR location ILIKE $%d)`, argIdx, argIdx+1, argIdx+2, argIdx+3))
-		args = append(args, "%HN%", "%Ha Noi%", "%Hanoi%", "%Hà Nội%")
-		argIdx += 4
+
+	locations := q.Locations
+	if len(locations) == 0 && q.Location != "" {
+		locations = []string{q.Location}
 	}
-	if q.Expertise != "" {
+	if len(locations) > 0 {
+		var locConds []string
+		for _, loc := range locations {
+			switch strings.ToUpper(strings.TrimSpace(loc)) {
+			case "HCM", "HO CHI MINH":
+				locConds = append(locConds, fmt.Sprintf("(location ILIKE $%d OR location ILIKE $%d OR location ILIKE $%d OR location ILIKE $%d)", argIdx, argIdx+1, argIdx+2, argIdx+3))
+				args = append(args, "%HCM%", "%Ho Chi Minh%", "%Hồ Chí Minh%", "%SG%")
+				argIdx += 4
+			case "HN", "HANOI", "HA NOI":
+				locConds = append(locConds, fmt.Sprintf("(location ILIKE $%d OR location ILIKE $%d OR location ILIKE $%d OR location ILIKE $%d)", argIdx, argIdx+1, argIdx+2, argIdx+3))
+				args = append(args, "%HN%", "%Ha Noi%", "%Hanoi%", "%Hà Nội%")
+				argIdx += 4
+			case "DANANG", "DA NANG":
+				locConds = append(locConds, fmt.Sprintf("(location ILIKE $%d OR location ILIKE $%d OR location ILIKE $%d OR description ILIKE $%d)", argIdx, argIdx+1, argIdx+2, argIdx+3))
+				args = append(args, "%Da Nang%", "%Đà Nẵng%", "%Danang%", "%đà nẵng%")
+				argIdx += 4
+			case "REMOTE":
+				locConds = append(locConds, fmt.Sprintf("(remote = true OR location ILIKE $%d OR location ILIKE $%d OR location ILIKE $%d OR description ILIKE $%d)", argIdx, argIdx+1, argIdx+2, argIdx+3))
+				args = append(args, "%remote%", "%từ xa%", "%wfh%", "%làm việc từ xa%")
+				argIdx += 4
+			}
+		}
+		if len(locConds) > 0 {
+			conditions = append(conditions, "("+strings.Join(locConds, " OR ")+")")
+		}
+	}
+
+	expertises := q.Expertises
+	if len(expertises) == 0 && q.Expertise != "" {
+		expertises = []string{q.Expertise}
+	}
+	if len(expertises) > 0 {
 		if r.hasExpertise {
-			conditions = append(conditions, fmt.Sprintf(`expertise = $%d`, argIdx))
-			args = append(args, q.Expertise)
-			argIdx++
+			var placeholders []string
+			for _, exp := range expertises {
+				placeholders = append(placeholders, fmt.Sprintf("$%d", argIdx))
+				args = append(args, exp)
+				argIdx++
+			}
+			conditions = append(conditions, fmt.Sprintf("expertise IN (%s)", strings.Join(placeholders, ", ")))
 		} else {
-			log.Printf("job repository: expertise filter requested (%s) but expertise column is missing; returning broader results", q.Expertise)
+			log.Printf("job repository: expertise filter requested (%v) but expertise column is missing; returning broader results", expertises)
 		}
 	}
 

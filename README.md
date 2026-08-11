@@ -1,30 +1,35 @@
 # JoblessYu
 
-JoblessYu is a Discord bot built in Go that scrapes IT job listings from Vietnamese and global job boards (ITViec, Indeed, LinkedIn), classifies them with Groq AI, and serves them via an interactive, 100% ephemeral (`"Only you can see this"`) slash command with rich filtering and pagination.
+JoblessYu is a high-performance Discord bot built in Go that scrapes IT job listings from Vietnamese and global job boards (ITViec, Indeed, LinkedIn), classifies them with Groq AI (`llama-3.1-8b-instant`), and serves them via an interactive, 100% ephemeral (`"Only you can see this"`) slash command with multi-keyword search, modal page jumps, and dual real-time Discord Hub status cards.
 
 ## Architecture
 
 ```
-DAILY 5:00 AM ICT (automated cron)
+DAILY 5:00 AM ICT (automated cron) / Manual Trigger (`make scrape`)
     │
-    ├── 1. SCRAPE
-    │      ├── Python jobspy  → Indeed (40 jobs) + LinkedIn (40 jobs)
-    │      ├── Go Colly        → ITViec (40 jobs, 24h freshness filter)
+    ├── 1. SCRAPE (Target: 30 ITViec + 30 Indeed + 30 LinkedIn)
+    │      ├── Python jobspy  → Indeed (30 jobs) + LinkedIn (30 jobs)
+    │      ├── Go Colly        → ITViec (30 jobs, 24h freshness filter)
     │      └── Cross-Site Deduplication (7-day window → merges alternate URLs)
     │
     ├── 2. AI ENRICHMENT (Groq — llama-3.1-8b-instant)
     │      ├── Classifies: level, type, expertise, tags, salary, remote, summary
+    │      ├── 1-job request loop with 18s throttle (~5,050 TPM safely under 6,000 TPM limit)
     │      ├── Regex fallback only when Groq is unreachable (network errors)
-    │      ├── Jobs with empty descriptions (<50 chars) are deleted
     │      └── Bilingual: handles Vietnamese + English + mixed JDs
     │
-    ├── 3. SERVING (/jobs command — 100% Ephemeral & Private)
+    ├── 3. REAL-TIME DISCORD HUB (Dual Static Pinned Cards)
+    │      ├── Card 1: System Status (🟢 ONLINE / 🔴 OFFLINE, version, active job pool)
+    │      ├── Card 2: Scrape Summary (Timestamps, fresh roles, levels & location breakdown)
+    │      └── Hybrid DB Sync: Postgres LISTEN jobs_changed + 30s monitor + 500ms debounce
+    │
+    ├── 4. SERVING (/jobs command — 100% Ephemeral & Private)
     │      ├── Filter menu & job result cards are tagged "Only you can see this"
     │      ├── Interactive filter panel: Level, Location, Position, Job Type
-    │      ├── Self-healing pagination cache with automatic DB recovery
+    │      ├── Modal Page Jump ("Go to Page") with self-healing DB fallback recovery
     │      └── Multi-platform apply links (Indeed, LinkedIn, ITViec)
     │
-    └── 4. WEEKLY CLEANUP (Monday 4:55 AM)
+    └── 5. WEEKLY CLEANUP (Monday 4:55 AM)
            └── Auto-delete jobs older than 30 days
 ```
 
@@ -61,108 +66,98 @@ The AI classifies each job into one of 24 canonical IT expertise categories base
 
 ## Prerequisites
 
-- **Go 1.26** or later
-- **Python 3.13** (for jobspy scraper)
-- **PostgreSQL Database** ([Neon](https://neon.tech/) — free tier)
+- **Go 1.24** or later
+- **Python 3.11+** (for jobspy scraper)
+- **PostgreSQL Database** ([Neon](https://neon.tech/) — free tier serverless Postgres)
 - **Groq API Key** ([GroqCloud](https://console.groq.com/) — free tier)
 - **Discord Bot Token** ([Developer Portal](https://discord.com/developers/applications))
 
-## Setup
+## Setup & Deployment
 
-### 1. Clone and install dependencies
+### 1. Local Environment Setup
 
 ```bash
 git clone https://github.com/Itea-Lab/JoblessYu.git
 cd JoblessYu
 go mod download
-```
 
-### 2. Python scraper setup
-
-```bash
-# On Linux/macOS:
+# Set up Python virtual environment:
 python3 -m venv scraper-python/.venv
 source scraper-python/.venv/bin/activate
 pip install -r scraper-python/requirements.txt
-
-# On Windows (PowerShell):
-py -3.13 -m venv scraper-python\.venv
-.\scraper-python\.venv\Scripts\Activate.ps1
-pip install -r scraper-python/requirements.txt
 ```
 
-### 3. Environment variables
-
-Copy `.env.example` to `.env` and fill in your credentials:
+### 2. Environment Variables (`.env`)
 
 ```env
 DISCORD_BOT_TOKEN=your_discord_bot_token
 DISCORD_GUILD_ID=your_guild_id
+DISCORD_CHANNEL_ID=your_hub_channel_id
 DATABASE_URL=your_neon_postgres_connection_string
 GROQ_API_KEY=your_groq_api_key
 AI_MODEL=llama-3.1-8b-instant
 JOB_RETENTION_DAYS=30
 ```
 
-### 4. Database migrations
+### 3. Database Migrations
 
 ```bash
 make migrate
 ```
 
-### 5. Run the bot
+### 4. Running Docker Container (Cloud-Ready)
 
 ```bash
-make bot
+# Build multi-stage hybrid container:
+docker build -t joblessyu .
+
+# Run container with HTTP /healthz probe on port 8080:
+docker run -d --env-file .env -p 8080:8080 joblessyu
 ```
 
-## How it works
+## How It Works
 
-### Daily pipeline (5:00 AM ICT)
+### 1. Dual-Card Discord Hub Architecture
+- **Card 1 (`🟢 ONLINE` / `🔴 OFFLINE`)**: Displays real-time bot lifecycle status, current version (`v1.2.0`), retention policy, and active job pool size. Automatically switches to `🔴 OFFLINE` when gracefully stopped.
+- **Card 2 (`🌅 SCRAPE SUMMARY`)**: Displays user-centric job insights:
+  - **Timestamps**: Last scrape time & next scheduled 05:00 AM ICT scrape.
+  - **Fresh Roles Today**: Count of new job listings ingested today.
+  - **Experience Level Breakdown**: `🎓 Intern / Fresher`, `🌱 Junior`, `🚀 Senior`, `⚡ Lead / Manager`.
+  - **Top Locations**: `🏙️ Ho Chi Minh`, `🏛️ Ha Noi`, `🌊 Da Nang`, `💻 Remote`.
 
-1. **Scrape (JobSpy + Colly)**
-   - Python JobSpy scrapes Indeed + LinkedIn (40 jobs each, posts from last 24 hours) using ITViec's canonical IT search query and non-IT title filters
-   - Go Colly scrapes ITViec (40 jobs, filtered by "Posted X ago" ≤ 24h)
-   - Cross-site deduplication computes `dedup_hash` (Company + Title + JobType) over a 7-day window, merging duplicate multi-platform URLs into `alternate_urls` JSONB
+### 2. Real-Time Hybrid Database Synchronization
+- Uses Postgres trigger `notify_jobs_changed()` (`LISTEN jobs_changed`) combined with a 30s fail-safe ticker and 500ms debouncer.
+- Automatically updates Discord status cards whenever job records are added, updated, or deleted.
 
-2. **AI Enrichment (Groq)**
-   - Batch enrichment processes all un-enriched jobs (2-hour window)
-   - Groq (`llama-3.1-8b-instant`) classifies: level (`Intern`, `Fresher`, `Junior`, `Senior`), type (`Full-time`, `Part-time`, `Contract`), expertise (24 categories), tags, salary, remote, summary
-   - JDs truncated to 1,500 chars to stay within Groq's free-tier TPM limit (8,000 TPM)
-   - 18s throttle between calls (~3.3 calls/min, ~5,050 TPM — 63% of limit)
-   - Regex fallback only when Groq is unreachable (network errors only)
-   - Jobs with empty descriptions (<50 chars) are deleted
-   - Bilingual: handles Vietnamese titles ("Chuyên viên" → Junior), experience phrases, skill inference
+### 3. Interactive Ephemeral Job Search (`/jobs`)
+- Pure DB query — 100% ephemeral (`"Only you can see this"`).
+- Multi-select checkbox filtering by Level, Location, Position, and Job Type (compact fixed-height layout).
+- Ephemeral pagination with `◀️ Prev`, `Page X/Y`, `Next ▶️`, and `🔢 Go to Page` modal jump.
 
-3. **Serving (/jobs command — 100% Ephemeral & Private)**
-   - Pure DB read — instant response, no AI calls during user interaction
-   - Responses are tagged `"Only you can see this"` to preserve user privacy and keep channels clean
-   - Filter dropdowns: Position (24 categories), Experience Level (`Intern`, `Fresher`, `Junior`, `Senior`, `All`), Location (`Ho Chi Minh`, `Ha Noi`, `All`), Job Type (`Full-time`, `Part-time`, `Contract`, `All`)
-   - Interactive pagination with Prev/Next buttons and self-healing DB fallback recovery
-
-4. **Weekly cleanup (Monday 4:55 AM)**
-   - Jobs older than 30 days auto-deleted to keep DB lean (Neon free tier)
-
-## Make commands
+## Make Commands
 
 ```bash
-make bot       # Start Discord bot + cron scheduler
-make scrape    # Full pipeline: jobspy (Indeed+LinkedIn) + Colly (ITViec) + AI enrichment
-make enrich    # AI enrichment only (processes un-enriched DB jobs)
-make test      # Run Go tests with race detector + coverage
-make lint      # Run Go vet + Python ruff
-make migrate   # Apply all SQL migrations to Neon DB
-make clean     # Remove build artifacts (bot binary, jobs.json)
+make bot          # Start Discord bot + cron scheduler + real-time DB listener
+make dev          # Alias for `make bot`
+make scrape       # Full pipeline: jobspy (Indeed+LinkedIn) + Colly (ITViec) + AI enrichment
+make enrich       # AI enrichment only (processes un-enriched DB jobs)
+make test         # Run Go tests with race detector + coverage
+make test-notify  # Test Discord notifications & UI cards (Online/Offline status, Scrape Summary)
+make eval-ai      # Run AI Evaluation & Hallucination Benchmark Suite
+make lint         # Run Go vet + Python ruff static analysis
+make lint-go      # Run Go vet static analysis
+make lint-python  # Run ruff check on Python scraper scripts
+make migrate      # Apply SQL migrations to Neon DB
+make clean        # Remove build artifacts
 ```
 
-## Tech stack
+## Tech Stack
 
-| Component | Technology | Free tier |
+| Component | Technology | Free Tier Capabilities |
 |---|---|---|
-| Bot | Go + discordgo | — |
-| Scraper (Indeed + LinkedIn) | Python + jobspy | — |
-| Scraper (ITViec) | Go + Colly | — |
-| AI enrichment | Groq (llama-3.1-8b-instant) | 30 RPM, 8K TPM, 1K RPD |
-| Database | Neon Postgres (serverless) | 0.5 GB storage |
-| Scheduler | robfig/cron (Go) | — |
-| CI | GitHub Actions (Go test + Python lint) | 2,000 min/month |
+| Bot Gateway | Go + discordgo | Dual static pinned cards + ephemeral components |
+| Scrapers | Python JobSpy (Indeed, LinkedIn) + Go Colly (ITViec) | 30/30/30 target scrape distribution |
+| AI Enrichment | Groq (`llama-3.1-8b-instant`) | 1-job request loop @ 18s delay (~5,050 TPM) |
+| Database | Neon PostgreSQL (Serverless) | GIN Trigram indexes (`pg_trgm`) + LISTEN/NOTIFY |
+| Container | Docker Multi-stage (Go 1.24 static + Python 3.11) | HTTP `/healthz` probe on port 8080 |
+| CI | GitHub Actions | Automated Go test + static analysis |

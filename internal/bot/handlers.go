@@ -87,9 +87,7 @@ func (b *Bot) handleSweeperComponent(s *discordgo.Session, i *discordgo.Interact
 
 	switch customID {
 	case "select_position":
-		if vals := i.MessageComponentData().Values; len(vals) > 0 {
-			state.PositionValue = vals[0]
-		}
+		state.Positions = normalizeSelectionValues(i.MessageComponentData().Values, state.Positions)
 		b.saveCriteriaState(i.Message.ID, state)
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseUpdateMessage,
@@ -99,9 +97,7 @@ func (b *Bot) handleSweeperComponent(s *discordgo.Session, i *discordgo.Interact
 			},
 		})
 	case "select_level":
-		if vals := i.MessageComponentData().Values; len(vals) > 0 {
-			state.LevelValue = vals[0]
-		}
+		state.Levels = normalizeSelectionValues(i.MessageComponentData().Values, state.Levels)
 		b.saveCriteriaState(i.Message.ID, state)
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseUpdateMessage,
@@ -111,9 +107,7 @@ func (b *Bot) handleSweeperComponent(s *discordgo.Session, i *discordgo.Interact
 			},
 		})
 	case "select_location":
-		if vals := i.MessageComponentData().Values; len(vals) > 0 {
-			state.LocationValue = vals[0]
-		}
+		state.Locations = normalizeSelectionValues(i.MessageComponentData().Values, state.Locations)
 		b.saveCriteriaState(i.Message.ID, state)
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseUpdateMessage,
@@ -123,9 +117,7 @@ func (b *Bot) handleSweeperComponent(s *discordgo.Session, i *discordgo.Interact
 			},
 		})
 	case "select_type":
-		if vals := i.MessageComponentData().Values; len(vals) > 0 {
-			state.JobTypeValue = vals[0]
-		}
+		state.JobTypes = normalizeSelectionValues(i.MessageComponentData().Values, state.JobTypes)
 		b.saveCriteriaState(i.Message.ID, state)
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseUpdateMessage,
@@ -139,6 +131,39 @@ func (b *Bot) handleSweeperComponent(s *discordgo.Session, i *discordgo.Interact
 	}
 }
 
+func normalizeSelectionValues(vals []string, prevState []string) []string {
+	if len(vals) == 0 {
+		return []string{"all"}
+	}
+
+	prevHasAll := sliceContains(prevState, "all")
+	currHasAll := sliceContains(vals, "all")
+
+	if currHasAll && !prevHasAll {
+		return []string{"all"}
+	}
+
+	var res []string
+	for _, v := range vals {
+		if v != "" && v != "all" {
+			res = append(res, v)
+		}
+	}
+	if len(res) == 0 {
+		return []string{"all"}
+	}
+	return res
+}
+
+func sliceContains(slice []string, target string) bool {
+	for _, v := range slice {
+		if v == target {
+			return true
+		}
+	}
+	return false
+}
+
 func (b *Bot) handleSearchJobs(s *discordgo.Session, i *discordgo.InteractionCreate, state criteriaState) {
 	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredMessageUpdate,
@@ -150,11 +175,11 @@ func (b *Bot) handleSearchJobs(s *discordgo.Session, i *discordgo.InteractionCre
 
 	ctx := context.Background()
 	q := job.JobQuery{
-		Level:     mapLevelToQuery(state.LevelValue),
-		Location:  mapLocationToQuery(state.LocationValue),
-		Expertise: mapPositionToQuery(state.PositionValue),
-		JobType:   mapJobTypeToQuery(state.JobTypeValue),
-		AIEnabled: b.cfg.GroqAPIKey != "",
+		Levels:     mapLevelsToQuery(state.Levels),
+		Locations:  mapLocationsToQuery(state.Locations),
+		Expertises: mapPositionsToQuery(state.Positions),
+		JobTypes:   mapJobTypesToQuery(state.JobTypes),
+		AIEnabled:  b.cfg.GroqAPIKey != "",
 	}
 
 	jobs, err := b.jobService.FetchAndProcessJobs(ctx, q)
@@ -478,30 +503,83 @@ func (b *Bot) saveCriteriaState(messageID string, state criteriaState) {
 	b.cacheLock.Unlock()
 }
 
-func mapLevelToQuery(v string) string {
-	switch v {
-	case "intern":
-		return "Intern"
-	case "fresher":
-		return "Fresher"
-	case "junior":
-		return "Junior"
-	case "senior":
-		return "Senior"
-	default:
-		return ""
+func mapLevelsToQuery(vals []string) []string {
+	var res []string
+	for _, v := range vals {
+		switch v {
+		case "intern":
+			res = append(res, "Intern")
+		case "fresher":
+			res = append(res, "Fresher")
+		case "junior":
+			res = append(res, "Junior")
+		case "middle":
+			res = append(res, "Middle")
+		case "senior":
+			res = append(res, "Senior")
+		case "lead":
+			res = append(res, "Lead")
+		}
 	}
+	return res
+}
+
+func mapLocationsToQuery(vals []string) []string {
+	var res []string
+	for _, v := range vals {
+		switch v {
+		case "hanoi":
+			res = append(res, "HN")
+		case "hcm":
+			res = append(res, "HCM")
+		case "danang":
+			res = append(res, "DaNang")
+		case "remote":
+			res = append(res, "Remote")
+		}
+	}
+	return res
+}
+
+func mapPositionsToQuery(vals []string) []string {
+	var res []string
+	for _, v := range vals {
+		if v != "" && v != "all" {
+			res = append(res, v)
+		}
+	}
+	return res
+}
+
+func mapJobTypesToQuery(vals []string) []string {
+	var res []string
+	for _, v := range vals {
+		switch v {
+		case "full_time":
+			res = append(res, "Full-time")
+		case "part_time":
+			res = append(res, "Part-time")
+		case "contract":
+			res = append(res, "Contract")
+		}
+	}
+	return res
+}
+
+func mapLevelToQuery(v string) string {
+	res := mapLevelsToQuery([]string{v})
+	if len(res) > 0 {
+		return res[0]
+	}
+	return ""
 }
 
 func mapLocationToQuery(v string) string {
-	switch v {
-	case "hanoi":
-		return "HN"
-	case "hcm":
-		return "HCM"
-	default:
-		return ""
+	res := mapLocationsToQuery([]string{v})
+	if len(res) > 0 {
+		return res[0]
 	}
+	return ""
 }
 
 func mapPositionToQuery(v string) string {
@@ -512,14 +590,9 @@ func mapPositionToQuery(v string) string {
 }
 
 func mapJobTypeToQuery(v string) string {
-	switch v {
-	case "full_time":
-		return "Full-time"
-	case "part_time":
-		return "Part-time"
-	case "contract":
-		return "Contract"
-	default:
-		return ""
+	res := mapJobTypesToQuery([]string{v})
+	if len(res) > 0 {
+		return res[0]
 	}
+	return ""
 }

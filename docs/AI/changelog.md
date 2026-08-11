@@ -3,6 +3,23 @@
 > Emergency backup context. Grand scheme from the foundation.
 > Roll up progress-log entries here at slice boundaries so context survives session resets.
 
+## [Slice O] — 2026-08-11
+
+### Summary
+Multi-Checkbox `/jobs` Search UI/UX, Fixed-Height Select Menu Layout & `skills.md` Alignment. Upgraded `/jobs` filter dropdowns (`select_position`, `select_level`, `select_location`, `select_type`) to use multi-select checkboxes (`MinValues: 0`, `MaxValues: 3..5`). Shortened chip labels (`Web Dev`, `Mobile Dev`, `IT Management`) and moved detailed role descriptions into `Description` fields inside dropdown items to keep select menu height fixed (~40px single-line) without flexing or vertical expanding. Enforced mutual exclusivity for "All" in `normalizeSelectionValues`. Expanded Seniority Levels (`Intern`, `Fresher`, `Junior`, `Middle`, `Senior`, `Lead / Manager`) to match `skills.md` and Locations (`Ho Chi Minh`, `Ha Noi`, `Da Nang`, `Remote / WFH`) to match Card 2 metrics. Built dynamic slice-based SQL query generator (`FetchRawJobs`) in `store.go`. Fully documented all 12 Makefile targets in `README.md`.
+
+### Files touched
+- modified: `internal/bot/embeds.go` (configured multi-select select menus with short chip labels, rich descriptions, and optimal `MaxValues`)
+- modified: `internal/bot/handlers.go` (updated `handleSweeperComponent` and `normalizeSelectionValues` to handle multi-select choices and mutual exclusivity)
+- modified: `internal/job/entry.go` (expanded `JobQuery` struct with slice fields `Levels`, `JobTypes`, `Locations`, `Expertises`)
+- modified: `internal/job/store.go` (updated `FetchRawJobs` query builder for multi-value SQL filtering)
+- modified: `internal/bot/embeds_test.go` (added unit tests for multi-select component generation and slice label formatters)
+- modified: `README.md` (documented all 12 Makefile targets)
+- modified: `docs/AI/progress-log.md` (recorded Slice O progress)
+- modified: `docs/AI/changelog.md` (this entry)
+
+---
+
 ## [Slice N] — 2026-08-11
 
 ### Summary

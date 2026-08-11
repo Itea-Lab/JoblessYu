@@ -513,10 +513,37 @@ Major architecture overhaul: replaced Firecrawl with hybrid jobspy+Colly scraper
   - Expanded `GetPipelineSummaryStats` ILIKE queries in `store.go` to use multi-keyword recognition matching Vietnamese diacritics (`Hà Nội`, `HN`, `Hồ Chí Minh`, `HCM`, `SG`, `Đà Nẵng`, `Remote`, `Junior / Mid`, `Senior`, `Lead`), ensuring 100% database categorization accuracy.
 
 ### Verification
+- `make eval-ai`: PASS (100% Level, 100% Expertise, 100% Location, 0% Hallucination Rate — 6/6 test cases passed).
 - `go test -v -race -cover ./...`: PASS (100% test pass rate across all packages).
 - `go vet ./...`: PASS (0 warnings / 0 errors).
 - `make scrape`: PASS (Updated Card 1 & Card 2 live in Discord).
 - `Migration 007`: Applied & active on Neon PostgreSQL DB.
+
+---
+
+## 2026-08-11 — Multi-Checkbox `/jobs` Search UI/UX, Fixed-Height Select Layout & `skills.md` Alignment (Slice O)
+
+### Completed
+- **Multi-Select Checkbox Dropdowns (`internal/bot/embeds.go`, `internal/bot/handlers.go`)**:
+  - Configured `select_position`, `select_level`, `select_location`, and `select_type` select menus with `MinValues: &zero` and `MaxValues: 3..5` to render native checkboxes inside Discord dropdowns.
+  - Enabled checking multiple options per dropdown in a single interaction without individual selection delays or UI lockups.
+- **Fixed-Height Compact UI Box Layout (`internal/bot/embeds.go`)**:
+  - Shortened option labels shown inside selected chips (e.g. `Web Dev`, `Mobile Dev`, `DevOps & SRE`, `IT Management`), keeping checked tags on a single clean line (~40px fixed height) without vertical flexing.
+  - Moved rich role details and tech keywords to `Description` fields inside dropdown items.
+  - Enforced mutual exclusivity for "All" options in `normalizeSelectionValues` to prevent "All" from displaying alongside specific checked tags.
+- **`skills.md` & Card 2 Metrics Alignment (`internal/bot/embeds.go`)**:
+  - Expanded Seniority Levels to include `Intern`, `Fresher`, `Junior`, `Middle`, `Senior`, and `Lead / Manager` (matching `skills.md`).
+  - Expanded Locations to include `Ho Chi Minh`, `Ha Noi`, `Da Nang`, and `Remote / WFH` (matching Card 2 metrics).
+- **Dynamic Multi-Value SQL Query Engine (`internal/job/entry.go`, `internal/job/store.go`, `internal/bot/handlers.go`)**:
+  - Added slice fields (`Levels`, `JobTypes`, `Locations`, `Expertises`) to `JobQuery`.
+  - Updated `FetchRawJobs` query builder in `store.go` to construct parameterized `IN (...)` and combined `OR` queries across PostgreSQL.
+- **Documentation & Makefile Alignment (`README.md`, `Makefile`)**:
+  - Updated `README.md` to document all 12 Makefile targets (`make bot`, `make dev`, `make scrape`, `make enrich`, `make test`, `make test-notify`, `make eval-ai`, `make lint`, `make lint-go`, `make lint-python`, `make migrate`, `make clean`).
+
+### Verification
+- `go test -v -race -cover ./...`: PASS (100% test pass rate across all packages).
+- `go vet ./...`: PASS (0 warnings / 0 errors).
+- `make eval-ai`: PASS (100% Level, 100% Expertise, 100% Location, 0% Hallucination Rate — 6/6 test cases passed).
 
 
 
