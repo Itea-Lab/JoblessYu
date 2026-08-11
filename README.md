@@ -1,13 +1,13 @@
 # JoblessYu
 
-JoblessYu is a high-performance Discord bot built in Go that scrapes IT job listings from Vietnamese and global job boards (ITViec, Indeed, LinkedIn), classifies them with Groq AI, and serves them via an interactive, 100% ephemeral (`"Only you can see this"`) slash command with rich multi-keyword filtering, modal page jumps, and dual real-time Discord Hub status cards.
+JoblessYu is a high-performance Discord bot built in Go that scrapes IT job listings from Vietnamese and global job boards (ITViec, Indeed, LinkedIn), classifies them with Groq AI (`llama-3.1-8b-instant`), and serves them via an interactive, 100% ephemeral (`"Only you can see this"`) slash command with multi-keyword search, modal page jumps, and dual real-time Discord Hub status cards.
 
 ## Architecture
 
 ```
 DAILY 5:00 AM ICT (automated cron) / Manual Trigger (`make scrape`)
     │
-    ├── 1. SCRAPE
+    ├── 1. SCRAPE (Target: 30 ITViec + 30 Indeed + 30 LinkedIn)
     │      ├── Python jobspy  → Indeed (30 jobs) + LinkedIn (30 jobs)
     │      ├── Go Colly        → ITViec (30 jobs, 24h freshness filter)
     │      └── Cross-Site Deduplication (7-day window → merges alternate URLs)
@@ -118,11 +118,11 @@ docker run -d --env-file .env -p 8080:8080 joblessyu
 ## How It Works
 
 ### 1. Dual-Card Discord Hub Architecture
-- **Card 1 (`🟢 ONLINE` / `🔴 OFFLINE`)**: Displays real-time bot lifecycle status, current version, retention policy, and active job pool size. Automatically switches to `🔴 OFFLINE` when gracefully stopped.
+- **Card 1 (`🟢 ONLINE` / `🔴 OFFLINE`)**: Displays real-time bot lifecycle status, current version (`v1.2.0`), retention policy, and active job pool size. Automatically switches to `🔴 OFFLINE` when gracefully stopped.
 - **Card 2 (`🌅 SCRAPE SUMMARY`)**: Displays user-centric job insights:
   - **Timestamps**: Last scrape time & next scheduled 05:00 AM ICT scrape.
   - **Fresh Roles Today**: Count of new job listings ingested today.
-  - **Experience Level Breakdown**: `🎓 Intern / Fresher`, `🌱 Junior / Mid`, `🚀 Senior`, `⚡ Lead / Manager`.
+  - **Experience Level Breakdown**: `🎓 Intern / Fresher`, `🌱 Junior`, `🚀 Senior`, `⚡ Lead / Manager`.
   - **Top Locations**: `🏙️ Ho Chi Minh`, `🏛️ Ha Noi`, `🌊 Da Nang`, `💻 Remote`.
 
 ### 2. Real-Time Hybrid Database Synchronization
@@ -156,4 +156,3 @@ make clean     # Remove build artifacts
 | Database | Neon PostgreSQL (Serverless) | GIN Trigram indexes (`pg_trgm`) + LISTEN/NOTIFY |
 | Container | Docker Multi-stage (Go 1.24 static + Python 3.11) | HTTP `/healthz` probe on port 8080 |
 | CI | GitHub Actions | Automated Go test + static analysis |
-
