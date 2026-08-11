@@ -18,13 +18,15 @@ Vietnamese job titles contain distinct seniority signals compared to English. Ma
 | Level | English Keywords | Vietnamese Keywords & Phrases |
 |---|---|---|
 | **Intern** | Intern, trainee, 0 years | Thực tập sinh, TTS, học việc |
-| **Fresher** | Fresher, entry-level, fresh graduate, 1-2 years | Fresher, mới ra trường, sinh viên mới tốt nghiệp |
-| **Junior** | Junior, 3-4 years | Chuyên viên, lập trình viên, kỹ sư |
-| **Senior** | Senior, lead, principal, staff, 5+ years | Senior, trưởng phòng, lead, quản lý, giám đốc |
+| **Fresher** | Fresher, entry-level, fresh graduate, 0-1 years | Fresher, mới ra trường, sinh viên mới tốt nghiệp |
+| **Junior** | Junior, 1-3 years | Junior, lập trình viên, kỹ sư |
+| **Middle** | Mid, middle, 2-4 years | Mid, chuyên viên, lập trình viên mid-level |
+| **Senior** | Senior, principal, staff, 5+ years | Senior, chuyên viên cao cấp |
+| **Lead** | Lead, manager, head, director, VP | Lead, trưởng nhóm, trưởng phòng, quản lý, giám đốc |
 | **Unknown** | No clear seniority signal | Không rõ |
 
 ### Seniority Edge Case Rules
-- **Chuyên viên**: In Vietnamese JDs, "Chuyên viên" means "Specialist" (a mid-level role). Classify as `Junior` unless prefixed with "Senior".
+- **Chuyên viên**: In Vietnamese JDs, "Chuyên viên" means "Specialist" (a mid-level role). Classify as `Junior` or `Middle` unless prefixed with "Senior".
 - **Mentors / Managers**: Text like "reports to Senior Developer" or "guided by Tech Lead" describes the supervisor, NOT the hired role. Classify based on the hired position.
 - **Location Words**: "International client" or "internal team" contain "intern" as a substring but are location/team words. Do NOT classify as `Intern`.
 - **Experience Phrases**:
@@ -91,7 +93,7 @@ Extract relevant technology tags into canonical forms under these specific categ
 
 ```json
 {
-  "level": "Intern|Fresher|Junior|Senior|Unknown",
+  "level": "Intern|Fresher|Junior|Middle|Senior|Lead|Unknown",
   "type": "Full-time|Part-time|Unknown",
   "expertise": "web_dev",
   "tags": {
