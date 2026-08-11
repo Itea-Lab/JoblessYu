@@ -3,6 +3,18 @@
 > Emergency backup context. Grand scheme from the foundation.
 > Roll up progress-log entries here at slice boundaries so context survives session resets.
 
+## [Slice P] — 2026-08-11
+
+### Summary
+macOS Terminal Quit Signal Handling (`SIGHUP` / `Cmd+Q`). Registered `syscall.SIGHUP` and `syscall.SIGQUIT` in `signal.Notify` in `cmd/bot/main.go`. Closing terminal windows or quitting terminal via `Cmd+Q` now triggers the exact same graceful shutdown sequence as `Ctrl+C`, ensuring Card 1 updates to `🔴 OFFLINE` in Discord.
+
+### Files touched
+- modified: `cmd/bot/main.go` (registered `SIGHUP` and `SIGQUIT` in `signal.Notify`)
+- modified: `docs/AI/progress-log.md` (recorded Slice P progress)
+- modified: `docs/AI/changelog.md` (this entry)
+
+---
+
 ## [Slice O] — 2026-08-11
 
 ### Summary

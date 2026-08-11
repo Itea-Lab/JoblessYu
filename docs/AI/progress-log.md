@@ -545,6 +545,19 @@ Major architecture overhaul: replaced Firecrawl with hybrid jobspy+Colly scraper
 - `go vet ./...`: PASS (0 warnings / 0 errors).
 - `make eval-ai`: PASS (100% Level, 100% Expertise, 100% Location, 0% Hallucination Rate — 6/6 test cases passed).
 
+---
+
+## 2026-08-11 — macOS Terminal Quit Signal Handling (`SIGHUP` / `Cmd+Q`) (Slice P)
+
+### Completed
+- **Terminal Quit Signal Handling (`cmd/bot/main.go`)**:
+  - Updated `signal.Notify` in `main.go` to listen for `syscall.SIGHUP` (terminal hangup sent when closing terminal tabs/windows or pressing `Cmd+Q` on macOS) and `syscall.SIGQUIT` alongside `os.Interrupt` (`SIGINT` / `Ctrl+C`) and `syscall.SIGTERM`.
+  - Ensures quitting the terminal application or closing the terminal window triggers the exact same graceful shutdown sequence as `Ctrl+C`, printing `"Shutting down..."` and updating Card 1 to `🔴 OFFLINE` in Discord.
+
+### Verification
+- `go test ./...`: PASS (100% clean test pass rate across all packages).
+- `go vet ./...`: PASS (0 warnings / 0 errors).
+
 
 
 
