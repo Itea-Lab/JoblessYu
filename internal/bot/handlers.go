@@ -173,7 +173,8 @@ func (b *Bot) handleSearchJobs(s *discordgo.Session, i *discordgo.InteractionCre
 		return
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	q := job.JobQuery{
 		Levels:     mapLevelsToQuery(state.Levels),
 		Locations:  mapLocationsToQuery(state.Locations),

@@ -43,6 +43,8 @@ func NewJobRepository(ctx context.Context, dbURL string) (*JobRepository, error)
 	cfg.MaxConns = 10
 	cfg.MinConns = 2
 	cfg.MaxConnIdleTime = 5 * time.Minute
+	cfg.MaxConnLifetime = 30 * time.Minute
+	cfg.HealthCheckPeriod = 1 * time.Minute
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {

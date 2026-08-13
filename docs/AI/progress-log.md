@@ -3,6 +3,20 @@
 > Daily modular log. Entries here get rolled up into `changelog.md` periodically.
 > When the AI loses context, this file + changelog.md together reconstruct project state.
 
+## 2026-08-14 — Slice Q & R: Strict Asset Validation, Fail-Fast Refactoring & Loophole Patches
+
+### Completed
+- **Strict Configuration Fail-Fast**: Required `DISCORD_CHANNEL_ID` in `config.Load()` (`log.Fatal`), eliminating silent channel guessing. Added explicit warning for missing `DISCORD_GUILD_ID` emphasizing Discord's 1-hour global slash command propagation delay.
+- **Discord Gateway Error Propagation**: Modified `bot.Start()` to return errors from `ApplicationCommandBulkOverwrite` rather than swallowing them.
+- **Explicit AI Disabled Handling**: Exported `ErrDisabledAPIKey` in `internal/job/groq.go` and updated `internal/job/enricher.go` to handle unconfigured AI keys without retries or false network error logs. Fixed redundant `break` statement warning in `enricher.go`.
+- **Serverless DB Connection Pool Resilience**: Added `HealthCheckPeriod = 1 * time.Minute` and `MaxConnLifetime = 30 * time.Minute` to `pgxpool.Config` in `internal/job/store.go` to prune stale TCP sockets caused by Neon serverless compute idle suspends.
+- **Search Query Deadline**: Bounded `handleSearchJobs` with a 10-second `context.WithTimeout` deadline in `internal/bot/handlers.go` to prevent database queries from hanging indefinitely if Neon compute is waking up.
+
+### Verification
+- `make test`: PASS (100% clean build & test execution with race detection)
+
+---
+
 ## 2026-08-05 — Slice H: 40-40-40 Scraper Scaling, Option 2 Terminal Logger & Windows Venv Fix
 
 ### Completed

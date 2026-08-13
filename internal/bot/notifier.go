@@ -73,52 +73,22 @@ func NewNotifier(session *discordgo.Session, cfg *config.Config) *Notifier {
 	}
 }
 
-// resolveChannelID returns targetChannelID if set, otherwise auto-discovers the primary text channel in DISCORD_GUILD_ID or connected guilds.
+// resolveChannelID validates that targetChannelID is explicitly configured.
+// It enforces the Fail-Fast principle by refusing to auto-discover or guess target channels.
 func (n *Notifier) resolveChannelID(targetChannelID string) (string, error) {
-	if targetChannelID != "" {
-		return targetChannelID, nil
+	chID := targetChannelID
+	if chID == "" {
+		chID = n.cfg.DiscordChannelID
+	}
+	if chID == "" {
+		return "", fmt.Errorf("target channel ID is empty; please specify DISCORD_CHANNEL_ID in .env")
 	}
 
 	if n.session == nil {
 		return "", fmt.Errorf("discord session is nil")
 	}
 
-	guildID := n.cfg.DiscordGuild
-	if guildID == "" {
-		if n.session.State != nil && len(n.session.State.Guilds) > 0 {
-			guildID = n.session.State.Guilds[0].ID
-		} else {
-			userGuilds, err := n.session.UserGuilds(10, "", "", false)
-			if err == nil && len(userGuilds) > 0 {
-				guildID = userGuilds[0].ID
-			}
-		}
-	}
-
-	if guildID == "" {
-		return "", fmt.Errorf("no DISCORD_GUILD_ID set and bot is not connected to any server")
-	}
-
-	channels, err := n.session.GuildChannels(guildID)
-	if err != nil {
-		return "", fmt.Errorf("failed to fetch channels for guild %s: %w", guildID, err)
-	}
-
-	// 1. Look for channel named "general", "bot-status", "job-announcements"
-	for _, ch := range channels {
-		if ch.Type == discordgo.ChannelTypeGuildText && (ch.Name == "general" || ch.Name == "bot-status" || ch.Name == "announcements") {
-			return ch.ID, nil
-		}
-	}
-
-	// 2. Fall back to the first text channel
-	for _, ch := range channels {
-		if ch.Type == discordgo.ChannelTypeGuildText {
-			return ch.ID, nil
-		}
-	}
-
-	return "", fmt.Errorf("no text channel found in guild %s", guildID)
+	return chID, nil
 }
 
 // GetResolvedChannelID returns the channel ID that will be used for notifications.
@@ -130,13 +100,13 @@ func (n *Notifier) GetResolvedChannelID(preferredChannelID string) string {
 	return chID
 }
 
-// UpdateStatusCard creates or edits the single static availability status card in DISCORD_STATUS_CHANNEL_ID (or default server channel).
+// UpdateStatusCard creates or edits the single static availability status card in DISCORD_CHANNEL_ID.
 func (n *Notifier) UpdateStatusCard(online bool, details StatusDetails) error {
 	if n.session == nil {
 		return fmt.Errorf("discord session is nil")
 	}
 
-	channelID, err := n.resolveChannelID(n.cfg.DiscordStatusChannelID)
+	channelID, err := n.resolveChannelID(n.cfg.DiscordChannelID)
 	if err != nil {
 		return fmt.Errorf("status channel resolution failed: %w", err)
 	}
@@ -216,18 +186,15 @@ func (n *Notifier) PostDailyScrapeAnnouncement(summary DailyScrapeSummary) error
 	return n.UpdateDailySummaryCard(summary)
 }
 
-// UpdateDailySummaryCard creates or edits the static daily pipeline summary card in DISCORD_ANNOUNCEMENT_CHANNEL_ID (or status channel).
+// UpdateDailySummaryCard creates or edits the static daily pipeline summary card in DISCORD_CHANNEL_ID.
 func (n *Notifier) UpdateDailySummaryCard(summary DailyScrapeSummary) error {
 	if n.session == nil {
 		return fmt.Errorf("discord session is nil")
 	}
 
-	channelID, err := n.resolveChannelID(n.cfg.DiscordAnnouncementChannelID)
+	channelID, err := n.resolveChannelID(n.cfg.DiscordChannelID)
 	if err != nil {
-		channelID, err = n.resolveChannelID(n.cfg.DiscordStatusChannelID)
-		if err != nil {
-			return fmt.Errorf("summary channel resolution failed: %w", err)
-		}
+		return fmt.Errorf("summary channel resolution failed: %w", err)
 	}
 
 	n.mu.Lock()

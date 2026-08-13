@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -185,7 +186,7 @@ func (b *Bot) Start() error {
 	if _, err := b.session.ApplicationCommandBulkOverwrite(
 		b.session.State.User.ID, b.cfg.DiscordGuild, commands,
 	); err != nil {
-		log.Println("Failed to overwrite slash commands:", err)
+		return fmt.Errorf("failed to register slash commands with Discord: %w", err)
 	}
 
 	// Update static availability card (Card 1) & daily summary card (Card 2) with real DB stats

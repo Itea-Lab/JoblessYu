@@ -25,7 +25,7 @@ func main() {
 	flag.Parse()
 
 	cfg := config.Load()
-
+	
 	ctx := context.Background()
 
 	repo, err := job.NewJobRepository(ctx, cfg.DatabaseURL)
@@ -136,7 +136,7 @@ func runTestNotifications(disbot *bot.Bot, cfg *config.Config) {
 	}
 
 	// 1. Test Status Card Online
-	statusChID := notifier.GetResolvedChannelID(cfg.DiscordStatusChannelID)
+	statusChID := notifier.GetResolvedChannelID(cfg.DiscordChannelID)
 	fmt.Printf("| [1/4] Testing Status Card Online (🟢 ONLINE) -> Channel ID: %s...\n", statusChID)
 	if err := notifier.UpdateStatusCard(true, details); err != nil {
 		fmt.Printf("|   └─ 🔴 Failed: %v\n", err)
@@ -147,7 +147,7 @@ func runTestNotifications(disbot *bot.Bot, cfg *config.Config) {
 	time.Sleep(1 * time.Second)
 
 	// 2. Test Daily Announcement
-	announceChID := notifier.GetResolvedChannelID(cfg.DiscordAnnouncementChannelID)
+	announceChID := notifier.GetResolvedChannelID(cfg.DiscordChannelID)
 	fmt.Printf("| [2/4] Testing Daily Scrape Announcement (🌅 Daily IT Job List Updated) -> Channel ID: %s...\n", announceChID)
 	summary := bot.DailyScrapeSummary{
 		RunTime:         time.Now(),

@@ -50,6 +50,9 @@ const (
 	groqMinJDLength = 50   // skip Groq for JDs shorter than this
 )
 
+// ErrDisabledAPIKey is returned when GROQ_API_KEY is omitted or empty.
+var ErrDisabledAPIKey = errors.New("groq: API key not configured")
+
 // jsonParseError wraps a JSON unmarshal failure. Extract retries only on
 // these errors (the model may produce different output on retry). API and
 // network errors fall back immediately — retrying won't help.
@@ -102,9 +105,9 @@ func (g *GroqExtractor) Close() {
 
 func (g *GroqExtractor) Extract(ctx context.Context, title, description string) (JobMeta, error) {
 	// Short-circuit when API key is not configured — avoids wasting 18s
-	// throttle + 401 API call per job. The enricher falls back to regex.
+	// throttle + 401 API call per job.
 	if g.apiKey == "" {
-		return JobMeta{}, fmt.Errorf("groq: API key not configured")
+		return JobMeta{}, ErrDisabledAPIKey
 	}
 
 	// Skip short/empty JDs — regex handles them. ~20% of scraped jobs have

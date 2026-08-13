@@ -3,6 +3,26 @@
 > Emergency backup context. Grand scheme from the foundation.
 > Roll up progress-log entries here at slice boundaries so context survives session resets.
 
+## [Slice Q & R] — 2026-08-14
+
+### Summary
+Strict Asset Validation, Fail-Fast Refactoring & Loophole Patches. Enforced strict validation for `DISCORD_CHANNEL_ID` in `config.Load()` (`log.Fatal`), eliminating unsafe channel guessing. Enhanced `DISCORD_GUILD_ID` log message to warn about Discord's 1-hour global command caching propagation window. Updated `bot.Start()` to return `ApplicationCommandBulkOverwrite` errors instead of swallowing them. Exported `ErrDisabledAPIKey` in `groq.go` and updated `enricher.go` to handle disabled AI mode cleanly without retries or fake network logs. Fixed redundant `break` statement in `enricher.go`. Added `HealthCheckPeriod` (1m) and `MaxConnLifetime` (30m) to `pgxpool.Config` in `store.go` to prune dead TCP sockets caused by Neon serverless DB idle suspends. Bounded `handleSearchJobs` with a 10-second `context.WithTimeout` deadline in `handlers.go`.
+
+### Files touched
+- modified: `internal/config/config.go` (added `DISCORD_CHANNEL_ID` check, enhanced `DISCORD_GUILD_ID` warning log)
+- modified: `internal/bot/bot.go` (propagated slash command registration errors)
+- modified: `internal/bot/notifier.go` (removed auto-discovery guessing, enforced strict channel resolution)
+- modified: `internal/job/groq.go` (exported `ErrDisabledAPIKey`)
+- modified: `internal/job/enricher.go` (handled `ErrDisabledAPIKey` without retries, removed redundant `break`)
+- modified: `internal/job/store.go` (added `HealthCheckPeriod` & `MaxConnLifetime` to `pgxpool.Config`)
+- modified: `internal/bot/handlers.go` (added 10s context deadline to `handleSearchJobs`)
+- modified: `.env` & `.env.example` (standardized to `DISCORD_GUILD_ID` and `DISCORD_CHANNEL_ID`)
+- modified: `docs/AI/modules.md` (updated architecture notes)
+- modified: `docs/AI/progress-log.md` (recorded Slice Q & R progress)
+- modified: `docs/AI/changelog.md` (this entry)
+
+---
+
 ## [Slice P] — 2026-08-11
 
 ### Summary

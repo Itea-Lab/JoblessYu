@@ -10,11 +10,10 @@ import (
 
 type Config struct {
 	// Discord
-	DiscordToken                 string
-	DiscordGuild                 string
-	DiscordStatusChannelID       string
-	DiscordAnnouncementChannelID string
-	DiscordLogWebhookURL         string
+	DiscordToken         string
+	DiscordGuild         string
+	DiscordChannelID     string
+	DiscordLogWebhookURL string
 
 	// Database
 	DatabaseURL string
@@ -33,15 +32,23 @@ func Load() *Config {
 	}
 
 	cfg := &Config{
-		DiscordToken:                 os.Getenv("DISCORD_BOT_TOKEN"),
-		DatabaseURL:                  os.Getenv("DATABASE_URL"),
-		DiscordGuild:                 os.Getenv("DISCORD_GUILD_ID"),
-		DiscordStatusChannelID:       os.Getenv("DISCORD_STATUS_CHANNEL_ID"),
-		DiscordAnnouncementChannelID: os.Getenv("DISCORD_ANNOUNCEMENT_CHANNEL_ID"),
-		DiscordLogWebhookURL:         os.Getenv("DISCORD_LOG_WEBHOOK_URL"),
+		DiscordToken:         os.Getenv("DISCORD_BOT_TOKEN"),
+		DatabaseURL:          os.Getenv("DATABASE_URL"),
+		DiscordGuild:         os.Getenv("DISCORD_GUILD_ID"),
+		DiscordChannelID:     os.Getenv("DISCORD_CHANNEL_ID"),
+		DiscordLogWebhookURL: os.Getenv("DISCORD_LOG_WEBHOOK_URL"),
 
 		GroqAPIKey: os.Getenv("GROQ_API_KEY"),
 		AIModel:    os.Getenv("AI_MODEL"),
+	}
+
+	// Fallback check for legacy env variable names if DISCORD_CHANNEL_ID is not set
+	if cfg.DiscordChannelID == "" {
+		if v := os.Getenv("DISCORD_STATUS_CHANNEL_ID"); v != "" {
+			cfg.DiscordChannelID = v
+		} else if v := os.Getenv("DISCORD_ANNOUNCEMENT_CHANNEL_ID"); v != "" {
+			cfg.DiscordChannelID = v
+		}
 	}
 
 	if cfg.DiscordToken == "" {
@@ -50,8 +57,11 @@ func Load() *Config {
 	if cfg.DatabaseURL == "" {
 		log.Fatal("config: DATABASE_URL is not set")
 	}
+	if cfg.DiscordChannelID == "" {
+		log.Fatal("config: DISCORD_CHANNEL_ID is not set in .env")
+	}
 	if cfg.DiscordGuild == "" {
-		log.Println("config: DISCORD_GUILD_ID is not set; slash commands will be registered globally")
+		log.Println("config: DISCORD_GUILD_ID is not set; slash commands will be registered globally (note: Discord global commands take ~1 hour to propagate)")
 	}
 
 	// AI config defaults.

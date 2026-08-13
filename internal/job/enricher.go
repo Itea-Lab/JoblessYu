@@ -170,8 +170,12 @@ func (e *BatchEnricher) enrichWithRetry(ctx context.Context, j JobEntry) (JobMet
 			// Auth error — API key invalid or revoked. No point retrying.
 			return JobMeta{}, fmt.Errorf("groq auth error (%d): %w", apiErr.HTTPStatusCode, err)
 
+		case errors.Is(err, ErrDisabledAPIKey):
+			// Groq API key is explicitly omitted in config — fall back to regex directly without retrying.
+			shouldFallbackToRegex = true
+
 		default:
-			// True network error, timeout, or "API key not configured".
+			// True network error or timeout.
 			// Groq is unreachable — retry once, then fall back to regex.
 			shouldFallbackToRegex = true
 			if attempt == 0 {
