@@ -63,6 +63,17 @@ func (b *Bot) handleMessageComponent(s *discordgo.Session, i *discordgo.Interact
 	}
 
 	customID := i.MessageComponentData().CustomID
+	if strings.HasPrefix(customID, "job_page_invalid_understood:") {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseUpdateMessage,
+			Data: &discordgo.InteractionResponseData{
+				Content:    "",
+				Embeds:     []*discordgo.MessageEmbed{},
+				Components: []discordgo.MessageComponent{},
+			},
+		})
+		return
+	}
 	if strings.HasPrefix(customID, "job_page_") {
 		b.handlePaginationComponent(s, i)
 		return
@@ -349,11 +360,26 @@ func (b *Bot) handlePageJumpSubmit(s *discordgo.Session, i *discordgo.Interactio
 	pageRaw := extractPageNumberInput(i.ModalSubmitData().Components)
 	page, err := parsePageNumber(pageRaw)
 	if err != nil || page < 1 || page > len(jobs) {
-		currentPage := cached.currentPage
-		if currentPage < 1 || currentPage > len(jobs) {
-			currentPage = 1
-		}
-		b.showPageJumpModal(s, i, sessionKey, currentPage, len(jobs), "")
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Embeds: []*discordgo.MessageEmbed{{
+					Title:       "Invalid Input",
+					Description: "You cannot type anything other than numbers.",
+					Color:       0xED4245,
+				}},
+				Components: []discordgo.MessageComponent{
+					discordgo.ActionsRow{Components: []discordgo.MessageComponent{
+						discordgo.Button{
+							Label:    "Understood!",
+							Style:    discordgo.DangerButton,
+							CustomID: "job_page_invalid_understood:" + sessionKey,
+						},
+					}},
+				},
+				Flags: discordgo.MessageFlagsEphemeral,
+			},
+		})
 		return
 	}
 
