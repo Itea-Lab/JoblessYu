@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -136,7 +135,17 @@ func (e *BatchEnricher) enrichWithRetry(ctx context.Context, j JobEntry) (JobMet
 
 		switch {
 		case isAPIError && apiErr.HTTPStatusCode == 429:
-			// Rate limited — retry with backoff.
+			// Check if this is a daily quota exhaustion (TPD or RPD) rather than a per-minute rate limit.
+			// Daily quotas take hours to reset, so retrying in seconds is futile. Fall back to regex immediately.
+			if strings.Contains(apiErr.Message, "TPD") || strings.Contains(apiErr.Message, "tokens per day") ||
+				strings.Contains(apiErr.Message, "RPD") || strings.Contains(apiErr.Message, "requests per day") {
+				slog.Warn("enricher: Groq daily quota exhausted (TPD/RPD), falling back to regex",
+					"job_id", j.ID, "err", apiErr.Message)
+				shouldFallbackToRegex = true
+				break
+			}
+
+			// Per-minute rate limit (TPM/RPM) — retry with backoff.
 			if attempt < maxRetries429 {
 				wait := parseRetryAfter(apiErr.Message)
 				slog.Warn("enricher: 429 rate limited, retrying",
@@ -193,9 +202,10 @@ func (e *BatchEnricher) enrichWithRetry(ctx context.Context, j JobEntry) (JobMet
 		break
 	}
 
-	// Regex fallback: ONLY when Groq is unreachable (network errors or
-	// API key not configured). Does NOT trigger for 429, 400, or JSON parse
-	// errors — those indicate Groq is responding but the JD/model is the problem.
+	// Regex fallback: ONLY when Groq is unreachable (network errors, API key
+	// not configured, or daily quota exhausted). Does NOT trigger for per-minute
+	// 429, 400, or JSON parse errors — those indicate Groq is responding but the
+	// JD/model is the problem.
 	if shouldFallbackToRegex {
 		slog.Warn("enricher: Groq unreachable, using regex fallback",
 			"job_id", j.ID, "title", j.Title, "err", lastErr)
@@ -209,19 +219,17 @@ func (e *BatchEnricher) enrichWithRetry(ctx context.Context, j JobEntry) (JobMet
 	return JobMeta{}, fmt.Errorf("enrichment failed: %w", lastErr)
 }
 
-// retryAfterRe matches "Please try again in 3.84s" from Groq error messages.
-var retryAfterRe = regexp.MustCompile(`try again in (\d+\.?\d*)\s*s`)
+// retryDurationRe matches "Please try again in 16m3.36s" or "try again in 3.84s" from Groq error messages.
+var retryDurationRe = regexp.MustCompile(`try again in ([\w\.]+)`)
 
 // parseRetryAfter extracts the retry-after duration from a Groq 429 error
 // message. Falls back to 5 seconds if parsing fails.
 func parseRetryAfter(msg string) time.Duration {
-	matches := retryAfterRe.FindStringSubmatch(msg)
-	if len(matches) < 2 {
-		return 5 * time.Second
+	matches := retryDurationRe.FindStringSubmatch(msg)
+	if len(matches) >= 2 {
+		if d, err := time.ParseDuration(matches[1]); err == nil && d > 0 {
+			return d + 1*time.Second
+		}
 	}
-	secs, err := strconv.ParseFloat(matches[1], 64)
-	if err != nil {
-		return 5 * time.Second
-	}
-	return time.Duration(secs*1000)*time.Millisecond + 1*time.Second
+	return 5 * time.Second
 }

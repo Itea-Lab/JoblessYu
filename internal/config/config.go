@@ -42,6 +42,10 @@ func Load() *Config {
 		AIModel:    os.Getenv("AI_MODEL"),
 	}
 
+	if cfg.GroqAPIKey == "" {
+		cfg.GroqAPIKey = os.Getenv("GROQ_API_KEYS")
+	}
+
 	// Fallback check for legacy env variable names if DISCORD_CHANNEL_ID is not set
 	if cfg.DiscordChannelID == "" {
 		if v := os.Getenv("DISCORD_STATUS_CHANNEL_ID"); v != "" {
@@ -66,7 +70,7 @@ func Load() *Config {
 
 	// AI config defaults.
 	if cfg.AIModel == "" {
-		cfg.AIModel = "llama-3.1-8b-instant"
+		cfg.AIModel = "openai/gpt-oss-20b"
 	}
 	if cfg.GroqAPIKey == "" {
 		log.Println("config: GROQ_API_KEY is not set; AI enrichment will be skipped")

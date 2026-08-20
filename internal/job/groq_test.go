@@ -1,7 +1,10 @@
 package job
 
 import (
+	"errors"
 	"testing"
+
+	"github.com/sashabaranov/go-openai"
 )
 
 func TestTruncate(t *testing.T) {
@@ -74,5 +77,17 @@ func TestExtractJSON(t *testing.T) {
 				t.Errorf("extractJSON(%q) = %q, want %q", c.input, got, c.want)
 			}
 		})
+	}
+}
+
+func TestGroqExtractHandlesEmptyChoices(t *testing.T) {
+	_, err := firstGroqChoice(openai.ChatCompletionResponse{})
+	if err == nil {
+		t.Fatal("firstGroqChoice() returned nil error for an empty choices response")
+	}
+
+	var parseErr *jsonParseError
+	if !errors.As(err, &parseErr) {
+		t.Fatalf("Extract() error = %T %v, want jsonParseError", err, err)
 	}
 }

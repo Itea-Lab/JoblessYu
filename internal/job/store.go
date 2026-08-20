@@ -597,34 +597,46 @@ func (r *JobRepository) GetPipelineSummaryStats(ctx context.Context) (PipelineSt
 
 // ListenForJobChanges listens to Postgres LISTEN jobs_changed channel for real-time DB mutations (INSERT/UPDATE/DELETE).
 func (r *JobRepository) ListenForJobChanges(ctx context.Context, onChange func()) {
+	for {
+		err := r.listenForJobChangesOnce(ctx, onChange)
+		if err == nil || ctx.Err() != nil {
+			return
+		}
+
+		slog.Warn("LISTEN jobs_changed connection lost, reconnecting", "err", err)
+		timer := time.NewTimer(5 * time.Second)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+func (r *JobRepository) listenForJobChangesOnce(ctx context.Context, onChange func()) error {
 	conn, err := r.pool.Acquire(ctx)
 	if err != nil {
-		slog.Warn("Failed to acquire connection for LISTEN jobs_changed", "err", err)
-		return
+		return fmt.Errorf("acquire LISTEN connection: %w", err)
 	}
 	defer conn.Release()
 
-	_, err = conn.Exec(ctx, "LISTEN jobs_changed;")
-	if err != nil {
-		slog.Warn("Failed to execute LISTEN jobs_changed", "err", err)
-		return
+	if _, err := conn.Exec(ctx, "LISTEN jobs_changed;"); err != nil {
+		return fmt.Errorf("execute LISTEN jobs_changed: %w", err)
 	}
 
 	slog.Info("Real-time database listener active (LISTEN jobs_changed)")
 	for {
-		if ctx.Err() != nil {
-			return
-		}
 		notification, err := conn.Conn().WaitForNotification(ctx)
 		if err != nil {
-			if ctx.Err() != nil {
-				return
-			}
-			slog.Warn("LISTEN jobs_changed connection lost, retrying...", "err", err)
-			time.Sleep(5 * time.Second)
-			continue
+			return fmt.Errorf("wait for jobs_changed notification: %w", err)
 		}
-		if notification != nil {
+		if notification != nil && onChange != nil {
 			onChange()
 		}
 	}

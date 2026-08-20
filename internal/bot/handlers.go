@@ -54,6 +54,7 @@ func (b *Bot) handleJobsSlash(s *discordgo.Session, i *discordgo.InteractionCrea
 
 	b.cacheLock.Lock()
 	b.uiState[msg.ID] = cachedCriteria{state: state, insertedAt: time.Now()}
+	b.trimCachesLocked()
 	b.cacheLock.Unlock()
 }
 
@@ -217,7 +218,7 @@ func (b *Bot) handleSearchJobs(s *discordgo.Session, i *discordgo.InteractionCre
 	sessionKey := i.Interaction.ID
 	components := buildJobResultV2Components(jobs[0], 1, len(jobs), sessionKey)
 
-	msg, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+	_, err = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 		Components: components,
 		Flags:      discordgo.MessageFlagsEphemeral | discordgo.MessageFlagsIsComponentsV2,
 	})
@@ -231,9 +232,7 @@ func (b *Bot) handleSearchJobs(s *discordgo.Session, i *discordgo.InteractionCre
 	if sessionKey != "" {
 		b.jobsCache[sessionKey] = entry
 	}
-	if msg != nil && msg.ID != "" {
-		b.jobsCache[msg.ID] = entry
-	}
+	b.trimCachesLocked()
 	b.cacheLock.Unlock()
 }
 
@@ -529,6 +528,7 @@ func (b *Bot) getCriteriaState(messageID string) criteriaState {
 func (b *Bot) saveCriteriaState(messageID string, state criteriaState) {
 	b.cacheLock.Lock()
 	b.uiState[messageID] = cachedCriteria{state: state, insertedAt: time.Now()}
+	b.trimCachesLocked()
 	b.cacheLock.Unlock()
 }
 
