@@ -349,13 +349,11 @@ func (b *Bot) handlePageJumpSubmit(s *discordgo.Session, i *discordgo.Interactio
 	pageRaw := extractPageNumberInput(i.ModalSubmitData().Components)
 	page, err := parsePageNumber(pageRaw)
 	if err != nil || page < 1 || page > len(jobs) {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "Invalid input, the input should be only number",
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		})
+		currentPage := cached.currentPage
+		if currentPage < 1 || currentPage > len(jobs) {
+			currentPage = 1
+		}
+		b.showPageJumpModal(s, i, sessionKey, currentPage, len(jobs), "")
 		return
 	}
 
