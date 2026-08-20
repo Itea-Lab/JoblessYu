@@ -302,7 +302,7 @@ func (b *Bot) showPageJumpModal(s *discordgo.Session, i *discordgo.InteractionCr
 				discordgo.ActionsRow{Components: []discordgo.MessageComponent{
 					discordgo.TextInput{
 						CustomID:    "job_page_number",
-						Label:       "Page number",
+						Label:       "Page number (numbers only)",
 						Style:       discordgo.TextInputShort,
 						Placeholder: fmt.Sprintf("Enter a number from 1 to %d", total),
 						Value:       strconv.Itoa(page),
@@ -341,7 +341,7 @@ func (b *Bot) handlePageJumpSubmit(s *discordgo.Session, i *discordgo.Interactio
 	}
 
 	pageRaw := extractPageNumberInput(i.ModalSubmitData().Components)
-	page, err := strconv.Atoi(strings.TrimSpace(pageRaw))
+	page, err := parsePageNumber(pageRaw)
 	if err != nil || page < 1 || page > len(jobs) {
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -368,6 +368,19 @@ func (b *Bot) handlePageJumpSubmit(s *discordgo.Session, i *discordgo.Interactio
 	if err != nil {
 		log.Println("Page jump update error:", err)
 	}
+}
+
+func parsePageNumber(raw string) (int, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return 0, strconv.ErrSyntax
+	}
+	for i := 0; i < len(value); i++ {
+		if value[i] < '0' || value[i] > '9' {
+			return 0, strconv.ErrSyntax
+		}
+	}
+	return strconv.Atoi(value)
 }
 
 func extractPageNumberInput(components []discordgo.MessageComponent) string {
