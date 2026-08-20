@@ -255,7 +255,7 @@ func (b *Bot) handlePaginationComponent(s *discordgo.Session, i *discordgo.Inter
 
 	switch action {
 	case "job_page_goto":
-		b.showPageJumpModal(s, i, sessionKey, page, len(jobs))
+		b.showPageJumpModal(s, i, sessionKey, page, len(jobs), "")
 		return
 	case "job_page_first":
 		page = 1
@@ -291,8 +291,14 @@ func (b *Bot) handlePaginationComponent(s *discordgo.Session, i *discordgo.Inter
 	}
 }
 
-func (b *Bot) showPageJumpModal(s *discordgo.Session, i *discordgo.InteractionCreate, sessionKey string, page, total int) {
+func (b *Bot) showPageJumpModal(s *discordgo.Session, i *discordgo.InteractionCreate, sessionKey string, page, total int, errorMessage string) {
 	maxDigits := len(strconv.Itoa(total))
+	label := "Page number (numbers only)"
+	placeholder := fmt.Sprintf("Enter a number from 1 to %d", total)
+	if errorMessage != "" {
+		label = "Invalid Input"
+		placeholder = errorMessage
+	}
 	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseModal,
 		Data: &discordgo.InteractionResponseData{
@@ -302,9 +308,9 @@ func (b *Bot) showPageJumpModal(s *discordgo.Session, i *discordgo.InteractionCr
 				discordgo.ActionsRow{Components: []discordgo.MessageComponent{
 					discordgo.TextInput{
 						CustomID:    "job_page_number",
-						Label:       "Page number (numbers only)",
+						Label:       label,
 						Style:       discordgo.TextInputShort,
-						Placeholder: fmt.Sprintf("Enter a number from 1 to %d", total),
+						Placeholder: placeholder,
 						Value:       strconv.Itoa(page),
 						Required:    true,
 						MinLength:   1,
@@ -343,13 +349,12 @@ func (b *Bot) handlePageJumpSubmit(s *discordgo.Session, i *discordgo.Interactio
 	pageRaw := extractPageNumberInput(i.ModalSubmitData().Components)
 	page, err := parsePageNumber(pageRaw)
 	if err != nil || page < 1 || page > len(jobs) {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: fmt.Sprintf("Please enter a valid page number between 1 and %d.", len(jobs)),
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		})
+		currentPage := cached.currentPage
+		if currentPage < 1 || currentPage > len(jobs) {
+			currentPage = 1
+		}
+		b.showPageJumpModal(s, i, sessionKey, currentPage, len(jobs),
+			fmt.Sprintf("Enter a whole number from 1 to %d", len(jobs)))
 		return
 	}
 
