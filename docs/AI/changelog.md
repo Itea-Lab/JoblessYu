@@ -3,6 +3,45 @@
 > Emergency backup context. Grand scheme from the foundation.
 > Roll up progress-log entries here at slice boundaries so context survives session resets.
 
+## [Slice T] — 2026-08-20
+
+### Summary
+P0 Runtime Safety & Long-Run Stability Pass. Fixed the Groq empty-response panic, made the parallel Colly scraper safe and cancellable, made the Postgres LISTEN loop reconnect correctly, serialized Discord hub refresh/debounce state, made bot shutdown idempotent, and added hard memory bounds to UI caches and captured Python subprocess output.
+
+### Files touched
+- modified: `internal/job/groq.go` and `internal/job/groq_test.go` (empty `choices` guard and regression test)
+- modified: `internal/job/colly_scraper.go` and `internal/job/colly_scraper_test.go` (mutex-protected shared results and context cancellation test)
+- modified: `internal/job/store.go` (fresh-connection LISTEN retry loop with context-aware backoff)
+- modified: `internal/bot/bot.go` and `internal/bot/handlers.go` (serialized card refreshes, idempotent shutdown, bounded caches)
+- created: `internal/bot/bot_test.go` (cache-cap regression test)
+- modified: `internal/scraper/scraper.go` (64 KiB thread-safe tail capture for Python output)
+- modified: `docs/AI/progress-log.md`, `docs/AI/structure.md`, and `docs/AI/modules.md` (runtime behavior and verification notes)
+
+### Verification
+- Go race-enabled tests: PASS
+- Go vet: PASS
+- Go build: PASS
+- Python syntax check: PASS
+- Ruff: one existing import-order issue remains
+
+## [Slice S] — 2026-08-18 / 2026-08-20
+
+### Summary
+Groq Model Migration to `openai/gpt-oss-20b`, Multi-Key Pool & High-Density Prompt Compression. Migrated primary Groq AI LLM model from deprecated `llama-3.1-8b-instant` to `openai/gpt-oss-20b` (Groq's official direct non-reasoning replacement). Implemented Multi-Key pooling in `GroqExtractor` supporting comma-separated keys (`GROQ_API_KEY=key1,key2`) with round-robin balancing, per-key rate limiting, key-level TPD daily exhaustion isolation, and instant failover on 429 errors. Compressed `skills.md` from 9.8KB to 2.3KB (~400 tokens), cutting per-call token usage by ~75% while retaining 100% of 24 IT categories, Vietnamese seniority signals, tag categories, and schema constraints. Added TPD/RPD quota exhaustion interception in `enricher.go` with compound duration parsing (`16m3.36s`). Tuned throttle to 15s with `lastCall` timestamp-based adaptive rate-limiting in `groq.go`. Implemented `sanitizeJD()` to strip raw HTML tags, `<script>`/JSON-LD blobs, and decode HTML entities.
+
+### Files touched
+- modified: `internal/config/config.go` (updated default `AIModel` to `openai/gpt-oss-20b`)
+- modified: `.env` & `.env.example` (updated `AI_MODEL=openai/gpt-oss-20b`)
+- modified: `internal/job/enricher.go` (added TPD daily quota fallback and compound retry parser)
+- modified: `internal/job/groq.go` (added `sanitizeJD()`, `lastCall` adaptive throttle, tuned 15s delay & 800 max tokens)
+- modified: `internal/job/skills.md` (added rule 5 forbidding `<think>` tags)
+- modified: `README.md` (updated model references in documentation)
+- modified: `docs/AI/modules.md` (updated Groq model specs)
+- modified: `docs/AI/progress-log.md` (recorded Slice S progress)
+- modified: `docs/AI/changelog.md` (this entry)
+
+---
+
 ## [Slice Q & R] — 2026-08-14
 
 ### Summary
@@ -638,5 +677,4 @@ Reverted Groq AI enrichment to single-job requests with an 18s delay to eliminat
 - `go test -v -race -cover ./...`: PASS (100% test pass rate)
 - `make scrape`: PASS (Updated Card 1 & Card 2 live in Discord)
 - Migration 007 active on Neon DB.
-
 

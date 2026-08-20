@@ -16,6 +16,8 @@ import (
 const (
 	jobsCacheTTL        = 30 * time.Minute
 	jobsCacheSweepEvery = 1 * time.Minute
+	jobsCacheMaxEntries = 128
+	uiStateMaxEntries   = 256
 )
 
 type cachedJobs struct {
@@ -57,6 +59,7 @@ type Bot struct {
 	cacheLock sync.RWMutex
 
 	stopJanitor chan struct{}
+	stopOnce    sync.Once
 }
 
 var commands = []*discordgo.ApplicationCommand{
@@ -173,6 +176,43 @@ func (b *Bot) evictExpired() {
 			delete(b.uiState, id)
 		}
 	}
+	b.trimCachesLocked()
+}
+
+// trimCachesLocked enforces hard entry limits in addition to the TTL. A busy
+// Discord server can create many independent ephemeral searches before the
+// one-minute janitor runs; without a cap, each search retains up to 1,000 full
+// JobEntry values (including descriptions) in memory.
+func (b *Bot) trimCachesLocked() {
+	for len(b.jobsCache) > jobsCacheMaxEntries {
+		var oldestID string
+		var oldest time.Time
+		for id, entry := range b.jobsCache {
+			if oldestID == "" || entry.insertedAt.Before(oldest) {
+				oldestID = id
+				oldest = entry.insertedAt
+			}
+		}
+		if oldestID == "" {
+			break
+		}
+		delete(b.jobsCache, oldestID)
+	}
+
+	for len(b.uiState) > uiStateMaxEntries {
+		var oldestID string
+		var oldest time.Time
+		for id, entry := range b.uiState {
+			if oldestID == "" || entry.insertedAt.Before(oldest) {
+				oldestID = id
+				oldest = entry.insertedAt
+			}
+		}
+		if oldestID == "" {
+			break
+		}
+		delete(b.uiState, oldestID)
+	}
 }
 
 func (b *Bot) Start() error {
@@ -213,8 +253,16 @@ func (b *Bot) Start() error {
 				lastKnownCount := -1
 				ticker := time.NewTicker(30 * time.Second)
 				defer ticker.Stop()
+				updateRequests := make(chan struct{}, 1)
+				requestUpdate := func() {
+					select {
+					case updateRequests <- struct{}{}:
+					default:
+						// A refresh is already queued or being debounced.
+					}
+				}
 
-				updateCardsIfChanged := func() {
+				refreshCardsIfChanged := func() {
 					rCtx, rCancel := context.WithTimeout(context.Background(), 10*time.Second)
 					defer rCancel()
 					details := b.fetchStatusDetails(rCtx)
@@ -230,32 +278,49 @@ func (b *Bot) Start() error {
 				}
 
 				// Initial check to prime lastKnownCount
-				updateCardsIfChanged()
+				refreshCardsIfChanged()
 
 				// 1. Postgres LISTEN event listener (push notifications)
+				listenerCtx, listenerCancel := context.WithCancel(context.Background())
+				defer listenerCancel()
+				go func() {
+					select {
+					case <-b.stopJanitor:
+						listenerCancel()
+					case <-listenerCtx.Done():
+					}
+				}()
 				if statsService, ok := b.jobService.(*job.JobService); ok {
-					ctx, cancel := context.WithCancel(context.Background())
-					go func() {
-						<-b.stopJanitor
-						cancel()
-					}()
-					var debounceTimer *time.Timer
-					go statsService.ListenForJobChanges(ctx, func() {
-						if debounceTimer != nil {
-							debounceTimer.Stop()
-						}
-						debounceTimer = time.AfterFunc(500*time.Millisecond, func() {
-							updateCardsIfChanged()
-						})
-					})
+					go statsService.ListenForJobChanges(listenerCtx, requestUpdate)
 				}
 
 				// 2. 30s fail-safe polling ticker (handles Neon PgBouncer transaction pooler drops)
+				var debounceTimer *time.Timer
+				var debounceC <-chan time.Time
 				for {
 					select {
 					case <-ticker.C:
-						updateCardsIfChanged()
+						refreshCardsIfChanged()
+					case <-updateRequests:
+						if debounceTimer == nil {
+							debounceTimer = time.NewTimer(500 * time.Millisecond)
+						} else {
+							if !debounceTimer.Stop() {
+								select {
+								case <-debounceTimer.C:
+								default:
+								}
+							}
+							debounceTimer.Reset(500 * time.Millisecond)
+						}
+						debounceC = debounceTimer.C
+					case <-debounceC:
+						debounceC = nil
+						refreshCardsIfChanged()
 					case <-b.stopJanitor:
+						if debounceTimer != nil {
+							debounceTimer.Stop()
+						}
 						return
 					}
 				}
@@ -266,13 +331,26 @@ func (b *Bot) Start() error {
 	return nil
 }
 
+func (b *Bot) signalStop() bool {
+	stopped := false
+	b.stopOnce.Do(func() {
+		close(b.stopJanitor)
+		stopped = true
+	})
+	return stopped
+}
+
 func (b *Bot) CloseWithoutOffline() {
-	close(b.stopJanitor)
+	if !b.signalStop() {
+		return
+	}
 	b.session.Close()
 }
 
 func (b *Bot) Stop() {
-	close(b.stopJanitor)
+	if !b.signalStop() {
+		return
+	}
 
 	// Update static availability card to Offline with real DB stats
 	if b.notifier != nil {

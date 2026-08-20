@@ -1,6 +1,6 @@
 # JoblessYu
 
-JoblessYu is a high-performance Discord bot built in Go that scrapes IT job listings from Vietnamese and global job boards (ITViec, Indeed, LinkedIn), classifies them with Groq AI (`llama-3.1-8b-instant`), and serves them via an interactive, 100% ephemeral (`"Only you can see this"`) slash command with multi-keyword search, modal page jumps, and dual real-time Discord Hub status cards.
+JoblessYu is a high-performance Discord bot built in Go that scrapes IT job listings from Vietnamese and global job boards (ITViec, Indeed, LinkedIn), classifies them with Groq AI (`openai/gpt-oss-20b`), and serves them via an interactive, 100% ephemeral (`"Only you can see this"`) slash command with multi-keyword search, modal page jumps, and dual real-time Discord Hub status cards.
 
 ## Architecture
 
@@ -12,7 +12,7 @@ DAILY 5:00 AM ICT (automated cron) / Manual Trigger (`make scrape`)
     │      ├── Go Colly        → ITViec (30 jobs, 24h freshness filter)
     │      └── Cross-Site Deduplication (7-day window → merges alternate URLs)
     │
-    ├── 2. AI ENRICHMENT (Groq — llama-3.1-8b-instant)
+    ├── 2. AI ENRICHMENT (Groq — openai/gpt-oss-20b)
     │      ├── Classifies: level, type, expertise, tags, salary, remote, summary
     │      ├── 1-job request loop with 18s throttle (~5,050 TPM safely under 6,000 TPM limit)
     │      ├── Regex fallback only when Groq is unreachable (network errors)
@@ -95,7 +95,7 @@ DISCORD_GUILD_ID=your_guild_id
 DISCORD_CHANNEL_ID=your_hub_channel_id
 DATABASE_URL=your_neon_postgres_connection_string
 GROQ_API_KEY=your_groq_api_key
-AI_MODEL=llama-3.1-8b-instant
+AI_MODEL=openai/gpt-oss-20b
 JOB_RETENTION_DAYS=30
 ```
 
@@ -157,7 +157,7 @@ make clean        # Remove build artifacts
 |---|---|---|
 | Bot Gateway | Go + discordgo | Dual static pinned cards + ephemeral components |
 | Scrapers | Python JobSpy (Indeed, LinkedIn) + Go Colly (ITViec) | 30/30/30 target scrape distribution |
-| AI Enrichment | Groq (`llama-3.1-8b-instant`) | 1-job request loop @ 18s delay (~5,050 TPM) |
+| AI Enrichment | Groq (`openai/gpt-oss-20b`) | 1-job request loop @ 18s delay (~5,050 TPM) |
 | Database | Neon PostgreSQL (Serverless) | GIN Trigram indexes (`pg_trgm`) + LISTEN/NOTIFY |
 | Container | Docker Multi-stage (Go 1.24 static + Python 3.11) | HTTP `/healthz` probe on port 8080 |
 | CI | GitHub Actions | Automated Go test + static analysis |

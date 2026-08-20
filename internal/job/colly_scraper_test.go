@@ -1,6 +1,20 @@
 package job
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"testing"
+)
+
+func TestScrapeITViecHonorsCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := NewCollyScraper().ScrapeITViec(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("ScrapeITViec() error = %v, want context.Canceled", err)
+	}
+}
 
 func TestParsePostedAge(t *testing.T) {
 	cases := []struct {
