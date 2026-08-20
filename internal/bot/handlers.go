@@ -476,9 +476,6 @@ func buildJobResultV2Components(j job.JobEntry, page, total int, sessionKey stri
 	if embed.Footer != nil && strings.TrimSpace(embed.Footer.Text) != "" {
 		containerComponents = append(containerComponents, discordgo.TextDisplay{Content: embed.Footer.Text})
 	}
-	containerComponents = append(containerComponents, discordgo.ActionsRow{
-		Components: buildJobNavigationButtons(page, total, sessionKey),
-	})
 
 	container := discordgo.Container{
 		AccentColor: &accentColor,
@@ -487,6 +484,7 @@ func buildJobResultV2Components(j job.JobEntry, page, total int, sessionKey stri
 
 	return []discordgo.MessageComponent{
 		container,
+		discordgo.ActionsRow{Components: buildJobNavigationButtons(page, total, sessionKey)},
 	}
 }
 
