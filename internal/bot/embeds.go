@@ -418,17 +418,17 @@ func buildJobEmbed(j job.JobEntry, page, total int) *discordgo.MessageEmbed {
 	location := sanitizeInlineValue(j.Location, "Unknown")
 
 	desc := fmt.Sprintf("### %s\n", title) +
-		fmt.Sprintf("> Company: `%s`\n", company) +
-		fmt.Sprintf("> Location: `%s`", location)
+		fmt.Sprintf("• **Company**: `%s`\n", company) +
+		fmt.Sprintf("• **Location**: `%s`", location)
 
 	if j.Salary != "" {
 		salary := sanitizeInlineValue(j.Salary, "")
 		if salary != "" {
-			desc += fmt.Sprintf("\n> Salary: `%s`", salary)
+			desc += fmt.Sprintf("\n• **Salary**: `%s`", salary)
 		}
 	}
 	if j.Remote {
-		desc += "\n> Remote: `Yes`"
+		desc += "\n• **Remote**: `Yes`"
 	}
 
 	var tagPills []string
