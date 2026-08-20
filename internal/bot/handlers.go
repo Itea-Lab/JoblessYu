@@ -360,26 +360,11 @@ func (b *Bot) handlePageJumpSubmit(s *discordgo.Session, i *discordgo.Interactio
 	pageRaw := extractPageNumberInput(i.ModalSubmitData().Components)
 	page, err := parsePageNumber(pageRaw)
 	if err != nil || page < 1 || page > len(jobs) {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Embeds: []*discordgo.MessageEmbed{{
-					Title:       "Invalid Input",
-					Description: "You cannot type anything other than numbers.",
-					Color:       0xED4245,
-				}},
-				Components: []discordgo.MessageComponent{
-					discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-						discordgo.Button{
-							Label:    "Understood!",
-							Style:    discordgo.DangerButton,
-							CustomID: "job_page_invalid_understood:" + sessionKey,
-						},
-					}},
-				},
-				Flags: discordgo.MessageFlagsEphemeral,
-			},
-		})
+		currentPage := cached.currentPage
+		if currentPage < 1 || currentPage > len(jobs) {
+			currentPage = 1
+		}
+		b.showPageJumpModal(s, i, sessionKey, currentPage, len(jobs), "")
 		return
 	}
 
