@@ -14,7 +14,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-func (b *Bot) handleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (b *Bot) HandleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	switch i.Type {
 	case discordgo.InteractionApplicationCommand:
 		if i.ApplicationCommandData().Name == "jobs" {
@@ -54,7 +54,6 @@ func (b *Bot) handleJobsSlash(s *discordgo.Session, i *discordgo.InteractionCrea
 
 	b.cacheLock.Lock()
 	b.uiState[msg.ID] = cachedCriteria{state: state, insertedAt: time.Now()}
-	b.trimCachesLocked()
 	b.cacheLock.Unlock()
 }
 
@@ -64,17 +63,6 @@ func (b *Bot) handleMessageComponent(s *discordgo.Session, i *discordgo.Interact
 	}
 
 	customID := i.MessageComponentData().CustomID
-	if strings.HasPrefix(customID, "job_page_invalid_understood:") {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseUpdateMessage,
-			Data: &discordgo.InteractionResponseData{
-				Content:    "",
-				Embeds:     []*discordgo.MessageEmbed{},
-				Components: []discordgo.MessageComponent{},
-			},
-		})
-		return
-	}
 	if strings.HasPrefix(customID, "job_page_") {
 		b.handlePaginationComponent(s, i)
 		return
@@ -218,7 +206,7 @@ func (b *Bot) handleSearchJobs(s *discordgo.Session, i *discordgo.InteractionCre
 	sessionKey := i.Interaction.ID
 	components := buildJobResultV2Components(jobs[0], 1, len(jobs), sessionKey)
 
-	_, err = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+	msg, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 		Components: components,
 		Flags:      discordgo.MessageFlagsEphemeral | discordgo.MessageFlagsIsComponentsV2,
 	})
@@ -232,7 +220,9 @@ func (b *Bot) handleSearchJobs(s *discordgo.Session, i *discordgo.InteractionCre
 	if sessionKey != "" {
 		b.jobsCache[sessionKey] = entry
 	}
-	b.trimCachesLocked()
+	if msg != nil && msg.ID != "" {
+		b.jobsCache[msg.ID] = entry
+	}
 	b.cacheLock.Unlock()
 }
 
@@ -265,7 +255,7 @@ func (b *Bot) handlePaginationComponent(s *discordgo.Session, i *discordgo.Inter
 
 	switch action {
 	case "job_page_goto":
-		b.showPageJumpModal(s, i, sessionKey, page, len(jobs), "")
+		b.showPageJumpModal(s, i, sessionKey, page, len(jobs))
 		return
 	case "job_page_first":
 		page = 1
@@ -301,14 +291,8 @@ func (b *Bot) handlePaginationComponent(s *discordgo.Session, i *discordgo.Inter
 	}
 }
 
-func (b *Bot) showPageJumpModal(s *discordgo.Session, i *discordgo.InteractionCreate, sessionKey string, page, total int, errorMessage string) {
+func (b *Bot) showPageJumpModal(s *discordgo.Session, i *discordgo.InteractionCreate, sessionKey string, page, total int) {
 	maxDigits := len(strconv.Itoa(total))
-	label := "Page number (numbers only)"
-	placeholder := fmt.Sprintf("Enter a number from 1 to %d", total)
-	if errorMessage != "" {
-		label = "Invalid Input"
-		placeholder = errorMessage
-	}
 	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseModal,
 		Data: &discordgo.InteractionResponseData{
@@ -318,9 +302,9 @@ func (b *Bot) showPageJumpModal(s *discordgo.Session, i *discordgo.InteractionCr
 				discordgo.ActionsRow{Components: []discordgo.MessageComponent{
 					discordgo.TextInput{
 						CustomID:    "job_page_number",
-						Label:       label,
+						Label:       "Page number",
 						Style:       discordgo.TextInputShort,
-						Placeholder: placeholder,
+						Placeholder: fmt.Sprintf("Enter a number from 1 to %d", total),
 						Value:       strconv.Itoa(page),
 						Required:    true,
 						MinLength:   1,
@@ -357,13 +341,15 @@ func (b *Bot) handlePageJumpSubmit(s *discordgo.Session, i *discordgo.Interactio
 	}
 
 	pageRaw := extractPageNumberInput(i.ModalSubmitData().Components)
-	page, err := parsePageNumber(pageRaw)
+	page, err := strconv.Atoi(strings.TrimSpace(pageRaw))
 	if err != nil || page < 1 || page > len(jobs) {
-		currentPage := cached.currentPage
-		if currentPage < 1 || currentPage > len(jobs) {
-			currentPage = 1
-		}
-		b.showPageJumpModal(s, i, sessionKey, currentPage, len(jobs), "")
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: fmt.Sprintf("Please enter a valid page number between 1 and %d.", len(jobs)),
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
 		return
 	}
 
@@ -382,19 +368,6 @@ func (b *Bot) handlePageJumpSubmit(s *discordgo.Session, i *discordgo.Interactio
 	if err != nil {
 		log.Println("Page jump update error:", err)
 	}
-}
-
-func parsePageNumber(raw string) (int, error) {
-	value := strings.TrimSpace(raw)
-	if value == "" {
-		return 0, strconv.ErrSyntax
-	}
-	for i := 0; i < len(value); i++ {
-		if value[i] < '0' || value[i] > '9' {
-			return 0, strconv.ErrSyntax
-		}
-	}
-	return strconv.Atoi(value)
 }
 
 func extractPageNumberInput(components []discordgo.MessageComponent) string {
@@ -528,7 +501,6 @@ func (b *Bot) getCriteriaState(messageID string) criteriaState {
 func (b *Bot) saveCriteriaState(messageID string, state criteriaState) {
 	b.cacheLock.Lock()
 	b.uiState[messageID] = cachedCriteria{state: state, insertedAt: time.Now()}
-	b.trimCachesLocked()
 	b.cacheLock.Unlock()
 }
 

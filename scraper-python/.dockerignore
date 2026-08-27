@@ -1,0 +1,121 @@
+# ==============================================================================
+# Python Bytecode, Caches & Build Artifacts
+# ==============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
+*.pyo
+build/
+dist/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+pip-wheel-metadata/
+
+# ==============================================================================
+# Python Virtual Environments
+# ==============================================================================
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+
+# ==============================================================================
+# Testing, Coverage & Linters
+# ==============================================================================
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
+nosetests.xml
+coverage.xml
+*.cover
+
+# ==============================================================================
+# Secrets & Environment Configurations
+# ==============================================================================
+.env
+.env.*
+*.env
+*.pem
+*.key
+*.crt
+*.pfx
+*.p12
+neoenv.txt
+secrets/
+
+# ==============================================================================
+# IDEs & Operating System Artifacts
+# ==============================================================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.sublime-project
+*.sublime-workspace
+
+# ==============================================================================
+# Version Control & AI Agent Metadata
+# ==============================================================================
+.git/
+.gitignore
+.gitattributes
+.github/
+.agent/
+.agents/
+.gemini/
+
+# ==============================================================================
+# Docker & Deployment Files
+# ==============================================================================
+Dockerfile
+Dockerfile.*
+.dockerignore
+compose*.yml
+compose*.yaml
+docker-compose*.yml
+docker-compose*.yaml
+
+# ==============================================================================
+# Documentation & Markdown
+# ==============================================================================
+*.md
+*.rst
+docs/
+
+# ==============================================================================
+# Data Output, Databases & Logs
+# ==============================================================================
+*.log
+jobs.json
+*.jsonl
+*.csv
+*.tsv
+*.xlsx
+*.sqlite
+*.sqlite3
+*.db

@@ -1,25 +1,85 @@
-# Normalize line endings to LF for cross-platform consistency (Windows/Mac/Linux).
-# Git will auto-convert CRLF -> LF on commit and LF -> CRLF on checkout for Windows.
+# ==============================================================================
+# Line Endings & Text Normalization
+# ==============================================================================
+# Auto-detect text files and normalize line endings to LF on commit
 * text=auto eol=lf
 
-# Explicitly enforce LF for source files that are sensitive to line endings.
-*.go   text eol=lf
-*.py   text eol=lf
-*.md   text eol=lf
-*.json text eol=lf
-*.sum  text eol=lf
-*.mod  text eol=lf
-*.env  text eol=lf
+# ------------------------------------------------------------------------------
+# Source Code (Explicit LF)
+# ------------------------------------------------------------------------------
+*.go           text eol=lf
+*.py           text eol=lf
+*.pyi          text eol=lf
+*.sh           text eol=lf
+*.bash         text eol=lf
+*.zsh          text eol=lf
+Makefile       text eol=lf
+Dockerfile     text eol=lf
+*.dockerfile   text eol=lf
 
-# Binary files — never normalize line endings.
-*.png  binary
-*.jpg  binary
-*.jpeg binary
-*.gif  binary
-*.ico  binary
-*.pdf  binary
-*.zip  binary
-*.db   binary
-*.dylib binary
-*.so   binary
-*.exe  binary
+# ------------------------------------------------------------------------------
+# Configurations & Data Formats (Explicit LF)
+# ------------------------------------------------------------------------------
+*.json         text eol=lf
+*.yaml         text eol=lf
+*.yml          text eol=lf
+*.toml         text eol=lf
+*.xml          text eol=lf
+*.sql          text eol=lf
+*.md           text eol=lf
+*.markdown     text eol=lf
+*.rst          text eol=lf
+*.txt          text eol=lf
+*.env*         text eol=lf
+*.mod          text eol=lf
+*.sum          text eol=lf
+*.work         text eol=lf
+*.tf           text eol=lf
+*.tfvars       text eol=lf
+*.hcl          text eol=lf
+.gitignore     text eol=lf
+.gitattributes text eol=lf
+.dockerignore  text eol=lf
+.editorconfig  text eol=lf
+
+# ------------------------------------------------------------------------------
+# Windows Scripts (Explicit CRLF)
+# ------------------------------------------------------------------------------
+*.bat          text eol=crlf
+*.cmd          text eol=crlf
+*.ps1          text eol=crlf
+
+# ------------------------------------------------------------------------------
+# Binary Files (Never normalize line endings, diff as binary)
+# ------------------------------------------------------------------------------
+*.png          binary
+*.jpg          binary
+*.jpeg         binary
+*.gif          binary
+*.ico          binary
+*.webp         binary
+*.pdf          binary
+*.zip          binary
+*.tar.gz       binary
+*.tgz          binary
+*.gz           binary
+*.7z           binary
+*.db           binary
+*.sqlite       binary
+*.sqlite3      binary
+*.dylib        binary
+*.so           binary
+*.dll          binary
+*.exe          binary
+*.pyd          binary
+*.woff         binary
+*.woff2        binary
+*.ttf          binary
+*.eot          binary
+
+# ------------------------------------------------------------------------------
+# GitHub / Linguist Overrides
+# ------------------------------------------------------------------------------
+go.sum         linguist-generated=true
+*.min.js       linguist-generated=true
+*.min.css      linguist-generated=true

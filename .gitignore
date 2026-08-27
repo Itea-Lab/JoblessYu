@@ -1,16 +1,145 @@
+# ==============================================================================
+# Operating System & File Managers
+# ==============================================================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+
+# ==============================================================================
+# IDEs, Editors & AI Metadata
+# ==============================================================================
+# JetBrains (IntelliJ, GoLand, PyCharm, etc.)
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+.history/
+
+# Vim & Emacs
+*.swp
+*.swo
+*.bak
+*.tmp
+.*.sw[a-p]
+[._]s[a-v][a-z]
+[._]*.un~
+Session.vim
+.#*
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# AI Agents & IDE State
+!.codesight/
+!.agent/
+.agents/
+.gemini/
+.claude/
+skills-lock.json
+
+# ==============================================================================
+# Environment Variables & Secrets
+# ==============================================================================
+.env
+.env.*
+*.env
+!.env.example
+!*.env.example
+neoenv.txt
+secrets/
+*.pem
+*.key
+*.crt
+*.pfx
+*.p12
+*.kdbx
+credentials.json
+service-account*.json
+
+# ==============================================================================
+# Go (Golang)
+# ==============================================================================
+# Compiled binaries and object files
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.pyd
+
+# Test binaries & coverage reports
+*.test
+*.test.exe
+*.out
+coverage.txt
+coverage.html
+profile.pprof
+
+# Workspace & local overrides
+go.work
+go.work.sum
+go.work.*
+
+# Build artifacts & packages
+/bot
+/joblessyu-bot
+bin/
+dist/
+
+# Dependency directories (uncomment if not vendoring)
+# vendor/
+
+# ==============================================================================
+# Python
+# ==============================================================================
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
 
-# C extensions
-*.so
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+**/.venv/
+**/venv/
 
-# Distribution / packaging
-.Python
+# Distribution & packaging
 build/
 develop-eggs/
-dist/
 downloads/
 eggs/
 .eggs/
@@ -25,16 +154,17 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+pip-wheel-metadata/
 
 # PyInstaller
 *.manifest
 *.spec
 
-# Installer logs
+# Installer & runtime logs
 pip-log.txt
 pip-delete-this-directory.txt
 
-# Unit test / coverage reports
+# Unit test & coverage reports
 htmlcov/
 .tox/
 .nox/
@@ -49,133 +179,91 @@ coverage.xml
 .pytest_cache/
 cover/
 
-# Translations
+# Linters & type checkers
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+cython_debug/
+
+# Translations & Web frameworks
 *.mo
 *.pot
-
-# Django stuff:
-*.log
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
-
-# Flask stuff:
 instance/
 .webassets-cache
-
-# Scrapy stuff:
 .scrapy
-
-# Sphinx documentation
-docs/_build/
-
-# PyBuilder
-.pybuilder/
-target/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# IPython
-profile_default/
-ipython_config.py
-
-# PEP 582; used by e.g. github.com/David-OConnor/pyflow
-__pypackages__/
-
-# Celery stuff
 celerybeat-schedule
 celerybeat.pid
 
-# SageMath parsed files
-*.sage.py
-
-# Environments
-.env
-.env.*
-*.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-**/.venv/
-**/venv/
-
-# Spyder project settings
+# Documentation builders & Jupyter
+docs/_build/
+/site
+.ipynb_checkpoints
+profile_default/
+ipython_config.py
+__pypackages__/
 .spyderproject
 .spyproject
-
-# Rope project settings
 .ropeproject
+.pybuilder/
+target/
 
-# mkdocs documentation
-/site
+# ==============================================================================
+# Terraform & Cloud Infrastructure
+# ==============================================================================
+# Local .terraform directories
+**/.terraform/*
+.terraform/
 
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
+# Terraform state files
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
 
-# Pyre type checker
-.pyre/
+# Crash logs
+crash.log
+crash.*.log
 
-# pytype static type analyzer
-.pytype/
+# Sensitive Terraform variables
+*.tfvars
+*.tfvars.json
+*.auto.tfvars
+*.auto.tfvars.json
+!*.tfvars.example
 
-# Cython debug symbols
-cython_debug/
+# Lambda & build archives
+*.zip
+bootstrap.zip
 
-# IDEs / OS files
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-.DS_Store
-Thumbs.db
+# Override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
 
-# --- Custom Project Settings ---
+# CLI configuration files
+.terraformrc
+terraform.rc
 
-# Scraped job data output
+# ==============================================================================
+# Project Specific & Local Notes
+# ==============================================================================
+# Scraped data & local databases
 jobs.json
+*.jsonl
+*.csv
+backup.sql
+*.sql.bak
 
-# NeonDB connection string
-skills-lock.json
-.agents
-
-# Documentation notes (local only)
+# Local development notes & AI logs
 Note.md
-GroqImplement.md
-
-# Neon credentials (local only)
-neoenv.txt
-
-# AI docs — progress log, structure, changelog (local context backup)
+GroqImplement.md1
 docs/AI/
 
-# --- Go ---
-# Binaries for programs and plugins
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
-
-# Test binary, built with `go test -c`
-*.test
-
-# Output of the go coverage tool, specifically when used with LiteIDE
-*.out
-
-# Dependency directories
-# vendor/
-
-# Go workspace file
-go.work
-go.work.sum
-
-# Build artifacts
-/bot
-backup.sql
+# Misc accidental artifacts
+-p/

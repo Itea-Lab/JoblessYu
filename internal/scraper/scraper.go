@@ -1,6 +1,7 @@
 package scraper
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -305,51 +306,15 @@ func (m *ScraperManager) runScrapeAndEnrich(ctx context.Context) {
 // pythonJobCountRe matches "40 jobs upserted to Neon." from jobspy output.
 var pythonJobCountRe = regexp.MustCompile(`(\d+) jobs? upserted`)
 
-const pythonOutputCaptureLimit = 64 * 1024
-
-// boundedOutput keeps only the tail of a subprocess log. Python output is
-// streamed live, but retaining an unlimited copy would let a noisy or stuck
-// scraper grow the bot's heap indefinitely. The mutex is required because
-// os/exec may write stdout and stderr concurrently.
-type boundedOutput struct {
-	mu    sync.Mutex
-	data  []byte
-	limit int
-}
-
-func (b *boundedOutput) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	if b.limit <= 0 {
-		return len(p), nil
-	}
-	if len(p) >= b.limit {
-		b.data = append(b.data[:0], p[len(p)-b.limit:]...)
-		return len(p), nil
-	}
-	if overflow := len(b.data) + len(p) - b.limit; overflow > 0 {
-		b.data = append([]byte(nil), b.data[overflow:]...)
-	}
-	b.data = append(b.data, p...)
-	return len(p), nil
-}
-
-func (b *boundedOutput) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return string(b.data)
-}
-
 // runPythonScraper runs the Python jobspy script as a subprocess.
 // Streams stdout/stderr to os.Stdout/os.Stderr so logs are visible,
 // while capturing output to return the number of jobs scraped.
 // The script writes directly to Neon DB via psycopg.
 func (m *ScraperManager) runPythonScraper(ctx context.Context) (int, error) {
 	cmd := exec.CommandContext(ctx, m.pythonExe, m.pythonScript)
-	outBuf := &boundedOutput{limit: pythonOutputCaptureLimit}
-	cmd.Stdout = io.MultiWriter(os.Stdout, outBuf)
-	cmd.Stderr = io.MultiWriter(os.Stderr, outBuf)
+	var outBuf bytes.Buffer
+	cmd.Stdout = io.MultiWriter(os.Stdout, &outBuf)
+	cmd.Stderr = io.MultiWriter(os.Stderr, &outBuf)
 
 	err := cmd.Run()
 	output := outBuf.String()

@@ -6,7 +6,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
@@ -37,22 +36,12 @@ func NewCollyScraper() *CollyScraper {
 // ScrapeITViec scrapes the ITViec job listing page and returns individual
 // job entries with full descriptions.
 func (s *CollyScraper) ScrapeITViec(ctx context.Context) ([]JobEntry, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
 	var jobs []JobEntry
-	var jobsMu sync.Mutex
-	var queueMu sync.Mutex
 	visited := make(map[string]bool)
 	queuedCount := 0 // tracks URLs queued for visiting (not jobs extracted)
 
 	c := colly.NewCollector(
 		colly.UserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
-		colly.StdlibContext(ctx),
 	)
 	c.SetRequestTimeout(30 * time.Second)
 	c.Limit(&colly.LimitRule{
@@ -66,27 +55,22 @@ func (s *CollyScraper) ScrapeITViec(ctx context.Context) ([]JobEntry, error) {
 	// Limit to itviecMaxJobs URLs — stops collecting after the cap is reached.
 	// Skips jobs posted more than 24 hours ago (matches jobspy's hours_old=24).
 	c.OnHTML("div.job-card", func(e *colly.HTMLElement) {
-		queueMu.Lock()
 		if queuedCount >= itviecMaxJobs {
-			queueMu.Unlock()
 			return
 		}
 
 		// Parse "Posted X hours/days ago" — skip stale jobs.
 		postedText := e.ChildText(".small-text.text-dark-grey")
 		if age := parsePostedAge(postedText); age > 24 {
-			queueMu.Unlock()
 			return
 		}
 
 		href := e.ChildAttr("h3 a", "href")
 		if href == "" {
-			queueMu.Unlock()
 			return
 		}
 		// Only collect URLs with a numeric job ID.
 		if !jobIDRe.MatchString(href) {
-			queueMu.Unlock()
 			return
 		}
 		// Normalize: strip query params, ensure absolute URL.
@@ -96,12 +80,10 @@ func (s *CollyScraper) ScrapeITViec(ctx context.Context) ([]JobEntry, error) {
 		href = strings.Split(href, "?")[0]
 
 		if visited[href] {
-			queueMu.Unlock()
 			return
 		}
 		visited[href] = true
 		queuedCount++
-		queueMu.Unlock()
 		e.Request.Visit(href)
 	})
 
@@ -215,7 +197,7 @@ func (s *CollyScraper) ScrapeITViec(ctx context.Context) ([]JobEntry, error) {
 			return
 		}
 
-		job := JobEntry{
+		jobs = append(jobs, JobEntry{
 			Title:       title,
 			Company:     company,
 			Location:    location,
@@ -223,10 +205,7 @@ func (s *CollyScraper) ScrapeITViec(ctx context.Context) ([]JobEntry, error) {
 			Site:        "itviec",
 			Description: description,
 			Remote:      remote,
-		}
-		jobsMu.Lock()
-		jobs = append(jobs, job)
-		jobsMu.Unlock()
+		})
 	})
 
 	c.OnError(func(r *colly.Response, err error) {
@@ -238,9 +217,6 @@ func (s *CollyScraper) ScrapeITViec(ctx context.Context) ([]JobEntry, error) {
 		return nil, err
 	}
 	c.Wait()
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
 
 	slog.Info("colly: ITViec scrape complete", "jobs", len(jobs))
 	return jobs, nil

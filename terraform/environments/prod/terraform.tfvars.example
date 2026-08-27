@@ -1,0 +1,17 @@
+# JoblessYu Terraform Variables Configuration Example
+aws_region  = "us-east-1"
+environment = "prod"
+
+# Discord Credentials
+discord_bot_token  = "your_discord_bot_token_here"
+discord_public_key = "your_discord_public_key_here" # Found in Discord Dev Portal -> General Information
+discord_channel_id = "your_discord_channel_id_here"
+discord_guild_id   = "" # Leave empty string "" for global slash commands
+
+# Database Connection (Neon Serverless Postgres)
+database_url = "postgresql://user:pass@ep-xyz.neon.tech/neondb?sslmode=require"
+
+# Groq AI Configuration
+groq_api_key       = "gsk_your_groq_api_key_here"
+ai_model           = "llama-3.1-8b-instant"
+job_retention_days = 30

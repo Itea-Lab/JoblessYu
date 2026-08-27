@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -135,19 +136,21 @@ func (e *BatchEnricher) enrichWithRetry(ctx context.Context, j JobEntry) (JobMet
 
 		switch {
 		case isAPIError && apiErr.HTTPStatusCode == 429:
-			// Check if this is a daily quota exhaustion (TPD or RPD) rather than a per-minute rate limit.
-			// Daily quotas take hours to reset, so retrying in seconds is futile. Fall back to regex immediately.
-			if strings.Contains(apiErr.Message, "TPD") || strings.Contains(apiErr.Message, "tokens per day") ||
-				strings.Contains(apiErr.Message, "RPD") || strings.Contains(apiErr.Message, "requests per day") {
-				slog.Warn("enricher: Groq daily quota exhausted (TPD/RPD), falling back to regex",
-					"job_id", j.ID, "err", apiErr.Message)
+			// Rate limited — check if it's a daily limit or long wait.
+			wait := parseRetryAfter(apiErr.Message)
+			isDailyLimit := strings.Contains(strings.ToLower(apiErr.Message), "tokens per day") ||
+				strings.Contains(strings.ToLower(apiErr.Message), "requests per day") ||
+				strings.Contains(strings.ToLower(apiErr.Message), "tpd") ||
+				strings.Contains(strings.ToLower(apiErr.Message), "rpd")
+
+			if isDailyLimit || wait > 60*time.Second {
+				slog.Warn("enricher: Groq rate limit / daily quota exceeded, falling back to regex",
+					"job_id", j.ID, "wait", wait, "msg", apiErr.Message)
 				shouldFallbackToRegex = true
 				break
 			}
 
-			// Per-minute rate limit (TPM/RPM) — retry with backoff.
 			if attempt < maxRetries429 {
-				wait := parseRetryAfter(apiErr.Message)
 				slog.Warn("enricher: 429 rate limited, retrying",
 					"job_id", j.ID, "attempt", attempt+1, "wait", wait)
 				select {
@@ -157,8 +160,9 @@ func (e *BatchEnricher) enrichWithRetry(ctx context.Context, j JobEntry) (JobMet
 				}
 				continue
 			}
-			// All 429 retries exhausted — skip (Groq still responding, just rate-limited).
-			return JobMeta{}, fmt.Errorf("429 after %d retries: %w", maxRetries429, err)
+			// All 429 retries exhausted — fall back to regex instead of failing the job.
+			slog.Warn("enricher: 429 retries exhausted, falling back to regex", "job_id", j.ID)
+			shouldFallbackToRegex = true
 
 		case isAPIError && apiErr.HTTPStatusCode == 400:
 			// Bad request — retry once (model may produce different output).
@@ -166,18 +170,17 @@ func (e *BatchEnricher) enrichWithRetry(ctx context.Context, j JobEntry) (JobMet
 				slog.Warn("enricher: 400 bad request, retrying once", "job_id", j.ID)
 				continue
 			}
-			// 400 after retry — the JD is the problem. No regex fallback.
-			return JobMeta{}, fmt.Errorf("400 after retry: %w", err)
+			// 400 after retry — the JD is the problem. Fall back to regex.
+			shouldFallbackToRegex = true
 
 		case isParseError:
-			// JSON parse error after Groq's own retry — the model returned
-			// unparseable output. This is a model/JD issue, not a network issue.
-			// Skip without regex fallback (same as 400).
-			return JobMeta{}, fmt.Errorf("json parse error: %w", err)
+			// JSON parse error after Groq's own retry — fall back to regex.
+			shouldFallbackToRegex = true
 
 		case isAPIError && (apiErr.HTTPStatusCode == 401 || apiErr.HTTPStatusCode == 403):
-			// Auth error — API key invalid or revoked. No point retrying.
-			return JobMeta{}, fmt.Errorf("groq auth error (%d): %w", apiErr.HTTPStatusCode, err)
+			// Auth error — API key invalid or revoked. Fall back to regex.
+			slog.Warn("enricher: Groq auth error, falling back to regex", "status", apiErr.HTTPStatusCode)
+			shouldFallbackToRegex = true
 
 		case errors.Is(err, ErrDisabledAPIKey):
 			// Groq API key is explicitly omitted in config — fall back to regex directly without retrying.
@@ -202,12 +205,9 @@ func (e *BatchEnricher) enrichWithRetry(ctx context.Context, j JobEntry) (JobMet
 		break
 	}
 
-	// Regex fallback: ONLY when Groq is unreachable (network errors, API key
-	// not configured, or daily quota exhausted). Does NOT trigger for per-minute
-	// 429, 400, or JSON parse errors — those indicate Groq is responding but the
-	// JD/model is the problem.
+	// Regex fallback: used when Groq is unreachable, quota is exceeded, or parsing fails.
 	if shouldFallbackToRegex {
-		slog.Warn("enricher: Groq unreachable, using regex fallback",
+		slog.Warn("enricher: using regex fallback",
 			"job_id", j.ID, "title", j.Title, "err", lastErr)
 		meta, err := e.regex.Extract(ctx, j.Title, j.Description)
 		if err == nil {
@@ -219,17 +219,34 @@ func (e *BatchEnricher) enrichWithRetry(ctx context.Context, j JobEntry) (JobMet
 	return JobMeta{}, fmt.Errorf("enrichment failed: %w", lastErr)
 }
 
-// retryDurationRe matches "Please try again in 16m3.36s" or "try again in 3.84s" from Groq error messages.
-var retryDurationRe = regexp.MustCompile(`try again in ([\w\.]+)`)
+// retryAfterRe matches "Please try again in 3.84s", "26m44.88s", or "1h2m3s" from Groq error messages.
+var retryAfterRe = regexp.MustCompile(`try again in (?:(\d+)h)?(?:(\d+)m)?(\d+(?:\.\d+)?)s`)
 
 // parseRetryAfter extracts the retry-after duration from a Groq 429 error
 // message. Falls back to 5 seconds if parsing fails.
 func parseRetryAfter(msg string) time.Duration {
-	matches := retryDurationRe.FindStringSubmatch(msg)
-	if len(matches) >= 2 {
-		if d, err := time.ParseDuration(matches[1]); err == nil && d > 0 {
-			return d + 1*time.Second
+	matches := retryAfterRe.FindStringSubmatch(msg)
+	if len(matches) < 4 {
+		return 5 * time.Second
+	}
+	var total time.Duration
+	if matches[1] != "" {
+		if h, err := strconv.Atoi(matches[1]); err == nil {
+			total += time.Duration(h) * time.Hour
 		}
 	}
-	return 5 * time.Second
+	if matches[2] != "" {
+		if m, err := strconv.Atoi(matches[2]); err == nil {
+			total += time.Duration(m) * time.Minute
+		}
+	}
+	if matches[3] != "" {
+		if s, err := strconv.ParseFloat(matches[3], 64); err == nil {
+			total += time.Duration(s * float64(time.Second))
+		}
+	}
+	if total == 0 {
+		return 5 * time.Second
+	}
+	return total + 1*time.Second
 }

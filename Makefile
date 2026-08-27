@@ -36,5 +36,21 @@ enrich:
 migrate:
 	@eval $$(scraper-python/.venv/bin/python3 -c "from dotenv import dotenv_values; [print(f'export {k}={v!r}') for k,v in dotenv_values('.env').items()]" 2>/dev/null || python3 -c "from dotenv import dotenv_values; [print(f'export {k}={v!r}') for k,v in dotenv_values('.env').items()]") && for f in migrations/*.sql; do echo "Applying $$f"; psql "$$DATABASE_URL" -f $$f; done
 
+# Build AWS Lambda ARM64 binaries and zip packages
+build-lambda:
+	powershell -ExecutionPolicy Bypass -Command "if (!(Test-Path bin)) { New-Item -ItemType Directory -Path bin }; \$$env:GOOS='linux'; \$$env:GOARCH='arm64'; \$$env:CGO_ENABLED='0'; go build -tags lambda.norpc -ldflags='-s -w' -o bin/bootstrap ./cmd/lambda-bot; Compress-Archive -Path bin/bootstrap -DestinationPath bin/bot.zip -Force; Remove-Item bin/bootstrap; go build -tags lambda.norpc -ldflags='-s -w' -o bin/bootstrap ./cmd/lambda-pipeline; Compress-Archive -Path bin/bootstrap -DestinationPath bin/pipeline.zip -Force; Remove-Item bin/bootstrap; Write-Host 'Lambda packages built in bin/'"
+
+
+# Terraform commands
+tf-init:
+	cd terraform/environments/prod && terraform init
+
+tf-plan:
+	cd terraform/environments/prod && terraform plan
+
+tf-apply:
+	cd terraform/environments/prod && terraform apply
+
 clean:
-	rm -f jobs.json bot
+	rm -f jobs.json bot bin/bot.zip bin/pipeline.zip
+

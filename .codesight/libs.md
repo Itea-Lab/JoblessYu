@@ -1,0 +1,56 @@
+# Libraries
+
+- `cmd\lambda-pipeline\main.go` — class Event, class Response
+- `internal\bot\bot.go` — function NewBot: (cfg *config.Config, jobService jobService) (*Bot, error), class Bot
+- `internal\bot\embeds.go` — function BuildStatusCardEmbed: (online bool, details StatusDetails) *discordgo.MessageEmbed, function BuildDailyAnnouncementEmbed: (summary DailyScrapeSummary) *discordgo.MessageEmbed
+- `internal\bot\notifier.go`
+  - function CalculateNextScrapeTime: (now time.Time) time.Time
+  - function NewNotifier: (session *discordgo.Session, cfg *config.Config) *Notifier
+  - class StatusDetails
+  - class DailyScrapeSummary
+  - class Notifier
+- `internal\config\config.go` — function Load: () *Config, class Config
+- `internal\job\colly_scraper.go` — function NewCollyScraper: () *CollyScraper, class CollyScraper
+- `internal\job\enricher.go` — function NewBatchEnricher: (store enricherStore, extractor Extractor) *BatchEnricher, class BatchEnricher
+- `internal\job\entry.go`
+  - class JobSource
+  - class JobEntry
+  - class JobMeta
+  - class JobQuery
+- `internal\job\eval.go`
+  - function GetBenchmarkDataset: () []EvalBenchmark
+  - function RunAIEval: (ctx context.Context, extractor Extractor) EvalReport
+  - function PrintEvalReport: (report EvalReport, modelName string)
+  - class EvalBenchmark
+  - class EvalReport
+  - class EvalDetail
+- `internal\job\expertise.go`
+  - function ExpertiseLabel: (value string) string
+  - function IsValidExpertise: (value string) bool
+  - function DetectExpertise: (title, description string) string
+  - class ExpertiseCategory
+- `internal\job\extractor.go`
+  - class JobBatchItem
+  - interface Extractor
+  - interface BatchExtractor
+- `internal\job\groq.go` — function NewGroqExtractor: (apiKey, model string) *GroqExtractor, class GroqExtractor
+- `internal\job\keywords.go` — function DetectTags: (text string) map[string][]string, class KeywordCategory
+- `internal\job\levels.go` — class LevelRule
+- `internal\job\location.go` — function NormalizeLocation: (rawLoc, description string) string
+- `internal\job\regex.go` — function NewRegexExtractor: () *RegexExtractor, class RegexExtractor
+- `internal\job\service.go` — function NewJobService: (store jobStore) *JobService, class JobService
+- `internal\job\store.go`
+  - function ComputeDedupHash: (company, title, jobType string) string
+  - function NewJobRepository: (ctx context.Context, dbURL string) (*JobRepository, error)
+  - class JobRepository
+  - class UpsertStats
+  - class PipelineStats
+- `internal\scraper\scraper.go`
+  - function NewScraperManager: (repo *job.JobRepository, collyScraper *job.CollyScraper, enricher *job.BatchEnricher, retentionDays int) *ScraperManager
+  - class ScraperManager
+  - interface Announcer
+- `scraper-python\JoblessYu.py`
+  - function compute_dedup_hash: (company, title, job_type)
+  - function normalize_job_type: (raw_type)
+  - function save_jobs_to_neon: (jobs_df)
+  - function JobScan: ()

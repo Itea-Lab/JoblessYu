@@ -42,10 +42,6 @@ func Load() *Config {
 		AIModel:    os.Getenv("AI_MODEL"),
 	}
 
-	if cfg.GroqAPIKey == "" {
-		cfg.GroqAPIKey = os.Getenv("GROQ_API_KEYS")
-	}
-
 	// Fallback check for legacy env variable names if DISCORD_CHANNEL_ID is not set
 	if cfg.DiscordChannelID == "" {
 		if v := os.Getenv("DISCORD_STATUS_CHANNEL_ID"); v != "" {

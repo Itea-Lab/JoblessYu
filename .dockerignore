@@ -1,52 +1,149 @@
-# Build artifacts
+# ==============================================================================
+# Build Artifacts & Binaries
+# ==============================================================================
 bot
+joblessyu-bot
+bin/
+dist/
+build/
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
+*.pyd
 *.test
+*.test.exe
 *.out
+*.zip
+*.tar.gz
 
-# Git
+# ==============================================================================
+# Version Control & Repository Metadata
+# ==============================================================================
 .git/
 .gitignore
 .gitattributes
+.github/
+.agent/
+.agents/
+.gemini/
+.claude/
 
-# IDE / OS
+# ==============================================================================
+# IDEs & Editor Temporary Files
+# ==============================================================================
 .idea/
 .vscode/
-.DS_Store
+.history/
 *.swp
 *.swo
 *~
+*.bak
+*.tmp
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.sublime-project
+*.sublime-workspace
 
-# Environment & secrets
+# ==============================================================================
+# Secrets & Environment Configurations
+# ==============================================================================
 .env
 .env.*
 *.env
+!.env.example
+!*.env.example
+*.pem
+*.key
+*.crt
+*.pfx
+*.p12
+*.kdbx
 neoenv.txt
+secrets/
+credentials.json
+service-account*.json
+
+# ==============================================================================
+# Documentation, Notes & Markdown
+# ==============================================================================
+docs/
+*.md
+*.rst
+*.txt
+!requirements.txt
 Note.md
 GroqImplement.md
-
-# Docs and metadata
-docs/
-README.md
 CONTRIBUTING.md
+JoblessYu.md
+README.md
 
-# Python venv and cache
+# ==============================================================================
+# Python Virtual Environments, Caches & Testing
+# ==============================================================================
 scraper-python/.venv/
+scraper-python/venv/
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+**/.venv/
+**/venv/
 **/__pycache__/
 *.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+nosetests.xml
+coverage.xml
+*.cover
+*.egg-info/
+pip-wheel-metadata/
 
-# Docker
+# ==============================================================================
+# Terraform & Cloud Infrastructure
+# ==============================================================================
+terraform/
+**/.terraform/
+*.tfstate*
+*.tfvars*
+*.tfplan
+
+# ==============================================================================
+# Docker & CI/CD Files
+# ==============================================================================
 Dockerfile
+Dockerfile.*
 .dockerignore
+compose*.yml
+compose*.yaml
+docker-compose*.yml
+docker-compose*.yaml
 
-# CI
-.github/
-
-# Misc
+# ==============================================================================
+# Misc Temporary, Data & Database Files
+# ==============================================================================
 jobs.json
+*.jsonl
+*.csv
+*.tsv
+*.xlsx
 Makefile
+*.sql.bak
 backup.sql
+*.sqlite
+*.sqlite3
+*.db
+*.log
+-p/

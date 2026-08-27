@@ -6,24 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
 	"log/slog"
-	"regexp"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/sashabaranov/go-openai"
 )
-
-var htmlTagRe = regexp.MustCompile(`(?s)<script.*?</script>|<style.*?</style>|<[^>]+>`)
-
-// sanitizeJD strips HTML tags, script/style/JSON-LD blobs, and unescapes HTML entities.
-func sanitizeJD(s string) string {
-	s = htmlTagRe.ReplaceAllString(s, " ")
-	s = html.UnescapeString(s)
-	return strings.Join(strings.Fields(s), " ")
-}
 
 //go:embed skills.md
 var skillsPrompt string
@@ -54,7 +43,7 @@ var skillsPrompt string
 // timeout is 15 min — safe margin.
 const (
 	groqBaseURL     = "https://api.groq.com/openai/v1"
-	groqThrottle    = 15 * time.Second
+	groqThrottle    = 18 * time.Second
 	groqMaxRetries  = 1 // retry once on JSON parse failure, then fall back
 	groqMaxTokens   = 800
 	groqMaxJDChars  = 1500 // truncate JDs to this many chars before sending
@@ -82,161 +71,94 @@ func (e *jsonParseError) Unwrap() error { return e.err }
 //
 // On JSON parse failure, it retries once. On API/network failure, it
 // returns immediately so the BatchEnricher can fall back to RegexExtractor.
-type groqClientEntry struct {
-	client         *openai.Client
-	apiKey         string
-	ticker         *time.Ticker
-	lastCall       atomic.Int64
-	exhaustedUntil atomic.Int64 // unix nano timestamp until which this key is skipped due to TPD
-}
-
-func (e *groqClientEntry) isExhausted() bool {
-	until := e.exhaustedUntil.Load()
-	return until > 0 && time.Now().UnixNano() < until
-}
-
-// GroqExtractor calls Groq's OpenAI-compatible API to classify job
-// descriptions. It embeds skills.md as the system prompt and parses
-// JSON from the model's free-text response.
-//
-// Supports multiple API keys (comma-separated). Keys are load-balanced via
-// round-robin with independent per-key rate limiting and automatic failover
-// on 429 errors (doubling/tripling daily quota and throughput).
 type GroqExtractor struct {
-	entries []*groqClientEntry
-	model   string
-	nextIdx atomic.Uint64
+	client    *openai.Client
+	model     string
+	ticker    *time.Ticker // rate-limiter; stopped via Close()
+	firstCall atomic.Bool  // skip throttle on the first call
+	apiKey    string       // empty = not configured, short-circuits Extract
 }
 
-// NewGroqExtractor creates a Groq-backed Extractor supporting one or more API keys.
-// apiKey can be a single key ("gsk_1") or multiple comma-separated keys ("gsk_1,gsk_2").
+// NewGroqExtractor creates a Groq-backed Extractor. apiKey is the Groq
+// API key; model is the Groq model ID (e.g. "llama-3.1-8b-instant").
 func NewGroqExtractor(apiKey, model string) *GroqExtractor {
+	cfg := openai.DefaultConfig(apiKey)
+	cfg.BaseURL = groqBaseURL
 	g := &GroqExtractor{
-		model: model,
+		client: openai.NewClientWithConfig(cfg),
+		model:  model,
+		ticker: time.NewTicker(groqThrottle),
+		apiKey: apiKey,
 	}
-
-	rawKeys := strings.Split(apiKey, ",")
-	for _, raw := range rawKeys {
-		k := strings.TrimSpace(raw)
-		if k == "" {
-			continue
-		}
-		cfg := openai.DefaultConfig(k)
-		cfg.BaseURL = groqBaseURL
-		g.entries = append(g.entries, &groqClientEntry{
-			client: openai.NewClientWithConfig(cfg),
-			apiKey: k,
-			ticker: time.NewTicker(groqThrottle),
-		})
-	}
-
-	if len(g.entries) > 1 {
-		slog.Info("GroqExtractor initialized with multi-key pool", "key_count", len(g.entries))
-	}
+	g.firstCall.Store(true)
 	return g
 }
 
-// Close stops the rate-limiter tickers for all key clients.
+// Close stops the rate-limiter ticker. Safe to call multiple times.
+// Extractor interface doesn't include Close() — callers check via type
+// assertion: `if closer, ok := ext.(interface{ Close() }); ok { closer.Close() }`
 func (g *GroqExtractor) Close() {
-	for _, e := range g.entries {
-		if e.ticker != nil {
-			e.ticker.Stop()
-		}
+	if g.ticker != nil {
+		g.ticker.Stop()
 	}
 }
 
 func (g *GroqExtractor) Extract(ctx context.Context, title, description string) (JobMeta, error) {
-	// Short-circuit when no API keys are configured.
-	if len(g.entries) == 0 {
+	// Short-circuit when API key is not configured — avoids wasting 18s
+	// throttle + 401 API call per job.
+	if g.apiKey == "" {
 		return JobMeta{}, ErrDisabledAPIKey
 	}
 
-	cleanDesc := sanitizeJD(description)
-
-	// Skip short/empty JDs — regex handles them.
-	if len(strings.TrimSpace(cleanDesc)) < groqMinJDLength {
-		return JobMeta{}, fmt.Errorf("groq: JD too short (%d chars), skipping", len(cleanDesc))
+	// Skip short/empty JDs — regex handles them. ~20% of scraped jobs have
+	// empty descriptions; sending them to Groq wastes ~1,100 tokens each.
+	if len(strings.TrimSpace(description)) < groqMinJDLength {
+		return JobMeta{}, fmt.Errorf("groq: JD too short (%d chars), skipping", len(description))
 	}
 
-	// Truncate JD to limit token usage.
-	if len(cleanDesc) > groqMaxJDChars {
-		cleanDesc = cleanDesc[:groqMaxJDChars]
+	// Truncate JD to limit token usage. Most job-relevant info (title,
+	// required skills, experience level) appears in the first paragraph.
+	if len(description) > groqMaxJDChars {
+		description = description[:groqMaxJDChars]
 	}
 
+	// Rate-limit: skip the wait on the first call, then enforce 18s spacing
+	// for subsequent calls.
+	if g.firstCall.Load() {
+		g.firstCall.Store(false)
+	} else {
+		select {
+		case <-g.ticker.C:
+		case <-ctx.Done():
+			return JobMeta{}, ctx.Err()
+		}
+	}
+
+	// Keep the original description for DetectExpertise (keyword fallback
+	// has no token budget and can safely scan the full JD).
 	originalDescription := description
-	systemMsg := skillsPrompt
-	userMsg := fmt.Sprintf("Title: %s\n\nDescription:\n%s\n\nReturn ONLY a JSON object. No prose, no markdown fences, no <think> blocks.", title, cleanDesc)
-
-	numKeys := len(g.entries)
-	startIdx := int(g.nextIdx.Add(1) - 1)
+	systemMsg := skillsPrompt + "\n\nReturn JSON with this shape:\n" + jobMetaSchemaDescription
+	userMsg := fmt.Sprintf("Title: %s\n\nDescription:\n%s\n\nReturn ONLY a JSON object. No prose, no markdown fences.", title, description)
 
 	var lastErr error
-	for keyAttempt := 0; keyAttempt < numKeys; keyAttempt++ {
-		keyIdx := (startIdx + keyAttempt) % numKeys
-		entry := g.entries[keyIdx]
-		if entry.isExhausted() {
-			continue
+	for attempt := 0; attempt <= groqMaxRetries; attempt++ {
+		meta, err := g.callGroq(ctx, systemMsg, userMsg, title, originalDescription)
+		if err == nil {
+			return meta, nil
 		}
 
-		// Adaptive Rate-limit per key entry
-		now := time.Now().UnixNano()
-		prev := entry.lastCall.Swap(now)
-		if prev != 0 && time.Duration(now-prev) < groqThrottle {
-			select {
-			case <-entry.ticker.C:
-			case <-ctx.Done():
-				return JobMeta{}, ctx.Err()
-			}
+		// Only retry on JSON parse errors — the model may produce
+		// different output on retry. API/network errors fall back
+		// immediately since retrying won't help.
+		var parseErr *jsonParseError
+		if !errors.As(err, &parseErr) {
+			return JobMeta{}, err
 		}
-
-		for attempt := 0; attempt <= groqMaxRetries; attempt++ {
-			meta, err := g.callGroqWithClient(ctx, entry.client, systemMsg, userMsg, title, originalDescription)
-			if err == nil {
-				return meta, nil
-			}
-
-			lastErr = err
-
-			var apiErr *openai.APIError
-			if errors.As(err, &apiErr) && apiErr.HTTPStatusCode == 429 {
-				if strings.Contains(apiErr.Message, "TPD") || strings.Contains(apiErr.Message, "tokens per day") ||
-					strings.Contains(apiErr.Message, "RPD") || strings.Contains(apiErr.Message, "requests per day") {
-					d := parseRetryAfter(apiErr.Message)
-					if d < 10*time.Minute {
-						d = 15 * time.Minute
-					}
-					entry.exhaustedUntil.Store(time.Now().Add(d).UnixNano())
-					slog.Warn("Groq key reached daily quota (TPD), marked inactive", "key_idx", keyIdx, "cooldown", d)
-					break // try next key in pool
-				}
-
-				// Per-minute TPM limit — wait short duration and retry
-				wait := parseRetryAfter(apiErr.Message)
-				if wait < 30*time.Second && attempt < groqMaxRetries {
-					slog.Warn("Groq TPM rate limit on key, waiting", "key_idx", keyIdx, "wait", wait)
-					select {
-					case <-time.After(wait):
-					case <-ctx.Done():
-						return JobMeta{}, ctx.Err()
-					}
-					continue
-				}
-
-				if numKeys > 1 && keyAttempt+1 < numKeys {
-					slog.Warn("Groq key rate limited, failing over to next key in pool", "key_idx", keyIdx, "err", apiErr.Message)
-					break // try next key in pool
-				}
-			}
-
-			var parseErr *jsonParseError
-			if !errors.As(err, &parseErr) {
-				return JobMeta{}, err
-			}
-			slog.Warn("Groq JSON parse error, retrying", "attempt", attempt+1, "err", err)
-		}
+		lastErr = err
+		slog.Warn("Groq JSON parse error, retrying", "attempt", attempt+1, "err", err)
 	}
 
-	return JobMeta{}, fmt.Errorf("groq extraction failed across %d keys: %w", numKeys, lastErr)
+	return JobMeta{}, fmt.Errorf("groq extraction failed after %d attempts: %w", groqMaxRetries+1, lastErr)
 }
 
 type rawJobMeta struct {
@@ -308,8 +230,8 @@ func (raw *rawJobMeta) toJobMeta(title, description string) JobMeta {
 	return meta
 }
 
-func (g *GroqExtractor) callGroqWithClient(ctx context.Context, client *openai.Client, systemMsg, userMsg, title, description string) (JobMeta, error) {
-	resp, err := client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+func (g *GroqExtractor) callGroq(ctx context.Context, systemMsg, userMsg, title, description string) (JobMeta, error) {
+	resp, err := g.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
 		Model: g.model,
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: systemMsg},
@@ -321,26 +243,18 @@ func (g *GroqExtractor) callGroqWithClient(ctx context.Context, client *openai.C
 	if err != nil {
 		return JobMeta{}, fmt.Errorf("groq API call: %w", err)
 	}
-	choice, err := firstGroqChoice(resp)
-	if err != nil {
-		return JobMeta{}, err
-	}
-	content := strings.TrimSpace(choice.Message.Content)
-	if content == "" && choice.Message.ReasoningContent != "" {
-		content = strings.TrimSpace(choice.Message.ReasoningContent)
-	}
-	if content == "" {
-		return JobMeta{}, &jsonParseError{err: fmt.Errorf("groq returned empty content")}
+
+	if len(resp.Choices) == 0 {
+		return JobMeta{}, fmt.Errorf("groq returned no choices")
 	}
 
-	// Try extracting JSON from after </think> if present, then fall back to full content
-	jsonStr := ""
-	if idx := strings.Index(content, "</think>"); idx != -1 {
-		jsonStr = extractJSON(strings.TrimSpace(content[idx+len("</think>"):]))
+	content := resp.Choices[0].Message.Content
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return JobMeta{}, fmt.Errorf("groq returned empty content")
 	}
-	if jsonStr == "" {
-		jsonStr = extractJSON(content)
-	}
+
+	jsonStr := extractJSON(content)
 	if jsonStr == "" {
 		return JobMeta{}, &jsonParseError{err: fmt.Errorf("no JSON object found in response (content: %s)", truncate(content, 200))}
 	}
@@ -356,13 +270,6 @@ func (g *GroqExtractor) callGroqWithClient(ctx context.Context, client *openai.C
 	meta.Model = g.model
 
 	return meta, nil
-}
-
-func firstGroqChoice(resp openai.ChatCompletionResponse) (openai.ChatCompletionChoice, error) {
-	if len(resp.Choices) == 0 {
-		return openai.ChatCompletionChoice{}, &jsonParseError{err: fmt.Errorf("groq returned no choices")}
-	}
-	return resp.Choices[0], nil
 }
 
 // extractJSON finds the first {...} block in the response content.
@@ -466,18 +373,16 @@ func (g *GroqExtractor) ExtractBatch(ctx context.Context, batch []JobBatchItem) 
 		return []JobMeta{meta}, nil
 	}
 
-	if len(g.entries) == 0 {
-		return nil, ErrDisabledAPIKey
+	if g.apiKey == "" {
+		return nil, fmt.Errorf("groq: API key not configured")
 	}
 
-	entry := g.entries[int(g.nextIdx.Add(1)-1)%len(g.entries)]
-
-	// Adaptive Rate-limit: enforce spacing between calls
-	now := time.Now().UnixNano()
-	prev := entry.lastCall.Swap(now)
-	if prev != 0 && time.Duration(now-prev) < groqThrottle {
+	// Rate-limit: enforce 18s spacing between calls
+	if g.firstCall.Load() {
+		g.firstCall.Store(false)
+	} else {
 		select {
-		case <-entry.ticker.C:
+		case <-g.ticker.C:
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
@@ -499,7 +404,7 @@ func (g *GroqExtractor) ExtractBatch(ctx context.Context, batch []JobBatchItem) 
 
 	var lastErr error
 	for attempt := 0; attempt <= groqMaxRetries; attempt++ {
-		metas, err := g.callGroqBatchWithClient(ctx, entry.client, systemMsg, userMsg, batch)
+		metas, err := g.callGroqBatch(ctx, systemMsg, userMsg, batch)
 		if err == nil {
 			return metas, nil
 		}
@@ -514,8 +419,8 @@ func (g *GroqExtractor) ExtractBatch(ctx context.Context, batch []JobBatchItem) 
 	return nil, fmt.Errorf("groq batch extraction failed after %d attempts: %w", groqMaxRetries+1, lastErr)
 }
 
-func (g *GroqExtractor) callGroqBatchWithClient(ctx context.Context, client *openai.Client, systemMsg, userMsg string, batch []JobBatchItem) ([]JobMeta, error) {
-	resp, err := client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+func (g *GroqExtractor) callGroqBatch(ctx context.Context, systemMsg, userMsg string, batch []JobBatchItem) ([]JobMeta, error) {
+	resp, err := g.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
 		Model: g.model,
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: systemMsg},

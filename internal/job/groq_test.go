@@ -1,10 +1,8 @@
 package job
 
 import (
-	"errors"
 	"testing"
-
-	"github.com/sashabaranov/go-openai"
+	"time"
 )
 
 func TestTruncate(t *testing.T) {
@@ -80,14 +78,46 @@ func TestExtractJSON(t *testing.T) {
 	}
 }
 
-func TestGroqExtractHandlesEmptyChoices(t *testing.T) {
-	_, err := firstGroqChoice(openai.ChatCompletionResponse{})
-	if err == nil {
-		t.Fatal("firstGroqChoice() returned nil error for an empty choices response")
+func TestParseRetryAfter(t *testing.T) {
+	cases := []struct {
+		name string
+		msg  string
+		min  time.Duration
+		max  time.Duration
+	}{
+		{
+			name: "seconds only",
+			msg:  "Rate limit reached. Please try again in 3.84s.",
+			min:  4 * time.Second,
+			max:  5 * time.Second,
+		},
+		{
+			name: "minutes and seconds",
+			msg:  "Rate limit reached for model qwen/qwen3.6-27b on tokens per day (TPD): Limit 200000. Please try again in 26m44.88s.",
+			min:  26*time.Minute + 44*time.Second,
+			max:  26*time.Minute + 47*time.Second,
+		},
+		{
+			name: "hours minutes seconds",
+			msg:  "Please try again in 1h2m3s.",
+			min:  1*time.Hour + 2*time.Minute + 3*time.Second,
+			max:  1*time.Hour + 2*time.Minute + 6*time.Second,
+		},
+		{
+			name: "fallback unparseable",
+			msg:  "Rate limit error without time format",
+			min:  5 * time.Second,
+			max:  5 * time.Second,
+		},
 	}
 
-	var parseErr *jsonParseError
-	if !errors.As(err, &parseErr) {
-		t.Fatalf("Extract() error = %T %v, want jsonParseError", err, err)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := parseRetryAfter(c.msg)
+			if got < c.min || got > c.max {
+				t.Errorf("parseRetryAfter(%q) = %v, want between %v and %v", c.msg, got, c.min, c.max)
+			}
+		})
 	}
 }
+
